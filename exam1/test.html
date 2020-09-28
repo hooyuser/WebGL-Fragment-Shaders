@@ -25,9 +25,7 @@
 
 
 <script id="vertex-shader" type="x-shader/x-vertex">
-    #ifdef GL_ES
-    precision mediump float;
-    #endif
+    precision highp float;
 
     uniform mat3 u_trans;
     uniform float u_aspectRatio;
@@ -41,9 +39,7 @@
 </script>
 
 <script id="fragment-shader" type="x-shader/x-fragment">
-    #ifdef GL_ES
-    precision mediump float;
-    #endif
+    precision highp float;
 
     // 常量定义
 
@@ -54,6 +50,7 @@
 
     uniform mat3 u_trans;
     uniform float u_aspectRatio;
+    uniform float u_cam_w;
     uniform vec3 u_eye;
     varying vec2 v_position;
 
@@ -67,8 +64,8 @@
     }
 
     float sceneSDF(vec3 p){
-        //return roundBoxSDF(p,vec3(0.2),0.1);
-        return sphereSDF(p);
+        return roundBoxSDF(p, vec3(0.2), 0.1);
+        //return sphereSDF(p);
     }
 
     float shortestDistanceToSurface(vec3 eye, vec3 marchingDirection, float start, float end){
@@ -86,38 +83,36 @@
         return end;
     }
 
-    vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord){
-        vec2 xy=fragCoord-size/2.;
-        float z=size.y/tan(radians(fieldOfView)/2.);
-        return normalize(vec3(xy, -z));
-    }
+    //    vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord){
+    //        vec2 xy=fragCoord-size/2.;
+    //        float z=size.y/tan(radians(fieldOfView)/2.);
+    //        return normalize(vec3(xy, -z));
+    //    }
 
-    vec3 toCartesianCoord(vec3 SphereCoord){
+    //    vec3 toCartesianCoord(vec3 SphereCoord){
+    //
+    //        float r=SphereCoord.x;
+    //        float theta=SphereCoord.y;
+    //        float phi=SphereCoord.z;
+    //
+    //        return vec3(r*sin(theta)*cos(phi), r*sin(theta)*sin(phi), r*cos(theta));
+    //    }
 
-        float r=SphereCoord.x;
-        float theta=SphereCoord.y;
-        float phi=SphereCoord.z;
-
-        return vec3(r*sin(theta)*cos(phi), r*sin(theta)*sin(phi), r*cos(theta));
-    }
-
-    vec3 calDir(vec2 screen, vec3 eye){
-        vec3 direction=vec3(0);
-        vec3 w=normalize(-eye);
-        vec3 u=normalize(cross(w, vec3(0., 0., 1.)));
-        vec3 v=cross(u, w);
-
-        mat3 trans=mat3(u, v, w);
-        //mat3 ee=inverse(trans);
-        //direction=normalize(inverse(trans)*vec3((x-0.5)*w,(y-0.5)*h,d));
-        return direction;
-    }
+    //    vec3 calDir(vec2 screen, vec3 eye){
+    //        vec3 direction=vec3(0);
+    //        vec3 w=normalize(-eye);
+    //        vec3 u=normalize(cross(w, vec3(0., 0., 1.)));
+    //        vec3 v=cross(u, w);
+    //
+    //        mat3 trans=mat3(u, v, w);
+    //        //mat3 ee=inverse(trans);
+    //        //direction=normalize(inverse(trans)*vec3((x-0.5)*w,(y-0.5)*h,d));
+    //        return direction;
+    //    }
 
 
     void main(){
-
-        float d = 5.0;
-        vec3 cam = normalize(vec3(v_position.x*u_aspectRatio, v_position.y, d));
+        vec3 cam = normalize(vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));
         float dist = shortestDistanceToSurface(u_eye, u_trans*cam, MIN_DIST, MAX_DIST);
 
         if (dist > MAX_DIST-EPSILON){
@@ -157,24 +152,28 @@
         let vector3 = new webgl_vector3();
         let matrix4 = new webgl_matrix4();
         let matrix3 = new webgl_matrix3();
-        let eye = vector3.create(0.0, -5.0, 0.0);
+        let eye = vector3.create(-5.0, 5.0, 5.0);
+        let fov = 10.0;
         let u = vector3.create();
         let v = vector3.create();
         let w = vector3.create();
         let up = vector3.normalize(vector3.create(0.0, 0.0, 1.0));
-        let eye_to_norm = vector3.copy(vector3.create(),eye)
+        let eye_to_norm = vector3.copy(vector3.create(), eye)
         vector3.scale(w, vector3.normalize(eye_to_norm), -1.0);
         vector3.crossProduct(u, w, up);
         vector3.crossProduct(v, u, w);
-        let transformMatrix = matrix4.create();
-        let temp = matrix4.createFromVectors(u, v, w);
-        matrix4.inverse(transformMatrix, temp);
+        let transformMatrix = matrix4.createFromVectors(u, v, w);
         let trans = matrix3.createFromMatrix4(transformMatrix);
         let u_trans_location = gl.getUniformLocation(program, 'u_trans');
         gl.uniformMatrix3fv(u_trans_location, false, trans);
 
+        let aspectRatio = canvas.width / canvas.height
         let u_aspectRatio_location = gl.getUniformLocation(program, 'u_aspectRatio');
-        gl.uniform1f(u_aspectRatio_location, canvas.width / canvas.height);
+        gl.uniform1f(u_aspectRatio_location, aspectRatio);
+
+        let cam_w = aspectRatio / 2 / Math.tan(fov / 360 * Math.PI);
+        let u_cam_w_location = gl.getUniformLocation(program, 'u_cam_w');
+        gl.uniform1f(u_cam_w_location, cam_w);
 
         let u_eye_location = gl.getUniformLocation(program, 'u_eye');
         gl.uniform3fv(u_eye_location, eye);
