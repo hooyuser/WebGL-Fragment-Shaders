@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>triangle</title>
+    <style>
+        body {
+            margin: 50px 300px 100px 300px;
+            overflow-y: auto;
+        }
+
+        canvas {
+            border: 3px solid blue;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<canvas id="triangle" width="900" height="600"></canvas>
+<script type="text/javascript" src="../lib/webgl-utils.js"></script>
+<script type="text/javascript" src="../lib/shader-util.js"></script>
+<script type="text/javascript" src="../lib/webgl_point4.js"></script>
+<script type="text/javascript" src="../lib/webgl_vector3.js"></script>
+<script type="text/javascript" src="../lib/webgl_matrix.js"></script>
+
+
+<script id="vertex-shader" type="x-shader/x-vertex">
+    #ifdef GL_ES
+    precision mediump float;
+    #endif
+
+    uniform mat3 u_trans;
+    uniform float u_aspectRatio;
+    attribute vec2 a_position;
+    varying vec2 v_position;
+
+    void main() {
+        v_position = a_position;
+        gl_Position = vec4(a_position, 0, 1);
+    }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+    #ifdef GL_ES
+    precision mediump float;
+    #endif
+
+    // 常量定义
+
+    #define MAX_MARCHING_STEPS 255// 最大raymarching次数
+    #define MIN_DIST.0// 起始raymarching距离
+    #define MAX_DIST 100.0// 最远raymarching距离
+    #define EPSILON.0001// 极小量
+
+    uniform mat3 u_trans;
+    uniform float u_aspectRatio;
+    uniform vec3 u_eye;
+    varying vec2 v_position;
+
+    float sphereSDF(vec3 p){
+        return length(p)-1.;
+    }
+
+    float roundBoxSDF(vec3 p, vec3 b, float r){
+        vec3 q=abs(p)-b;
+        return length(max(q, 0.))+min(max(q.x, max(q.y, q.z)), 0.)-r;
+    }
+
+    float sceneSDF(vec3 p){
+        //return roundBoxSDF(p,vec3(0.2),0.1);
+        return sphereSDF(p);
+    }
+
+    float shortestDistanceToSurface(vec3 eye, vec3 marchingDirection, float start, float end){
+        float depth=start;
+        for (int i=0;i<MAX_MARCHING_STEPS;i++){
+            float dist=sceneSDF(eye+depth*marchingDirection);
+            if (dist<EPSILON){
+                return depth;
+            }
+            depth+=dist;
+            if (depth>=end){
+                return end;
+            }
+        }
+        return end;
+    }
+
+    vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord){
+        vec2 xy=fragCoord-size/2.;
+        float z=size.y/tan(radians(fieldOfView)/2.);
+        return normalize(vec3(xy, -z));
+    }
+
+    vec3 toCartesianCoord(vec3 SphereCoord){
+
+        float r=SphereCoord.x;
+        float theta=SphereCoord.y;
+        float phi=SphereCoord.z;
+
+        return vec3(r*sin(theta)*cos(phi), r*sin(theta)*sin(phi), r*cos(theta));
+    }
+
+    vec3 calDir(vec2 screen, vec3 eye){
+        vec3 direction=vec3(0);
+        vec3 w=normalize(-eye);
+        vec3 u=normalize(cross(w, vec3(0., 0., 1.)));
+        vec3 v=cross(u, w);
+
+        mat3 trans=mat3(u, v, w);
+        //mat3 ee=inverse(trans);
+        //direction=normalize(inverse(trans)*vec3((x-0.5)*w,(y-0.5)*h,d));
+        return direction;
+    }
+
+
+    void main(){
+
+        float d = 5.0;
+        vec3 cam = normalize(vec3(v_position.x*u_aspectRatio, v_position.y, d));
+        float dist = shortestDistanceToSurface(u_eye, u_trans*cam, MIN_DIST, MAX_DIST);
+
+        if (dist > MAX_DIST-EPSILON){
+            // Didn't hit anything
+            gl_FragColor = vec4(0., 0., 0., 0.);
+            return;
+        }
+
+        gl_FragColor = vec4(1., 0., 0., 1.);
+    }
+</script>
+<script>
+    "use strict";
+
+    function main() {
+        let canvas = document.getElementById('triangle');
+
+        //判断浏览器是否支持webgl， antialias用于设置抗锯齿，
+        let gl = canvas.getContext('webgl', {antialias: true, depth: false});
+        if (!gl) {
+            console.log("您的浏览器不支持webgl！");
+            return null;
+        }
+
+
+        //获取GLSL文本
+        let vShaderSource = document.getElementById('vertex-shader').text;
+        let fShaderSource = document.getElementById('fragment-shader').text;
+        // import vShaderSource from '../lib/shader/draw_2d/draw_2d_vert.js';
+        // import fShaderSource from '../lib/shader/draw_2d/draw_2d_frag.js';
+
+        //创建、编译和链接着色器
+        let program = initShader(gl, vShaderSource, fShaderSource);
+        gl.useProgram(program);
+
+        //---------------------------------------------------------------------------------------------------
+        let vector3 = new webgl_vector3();
+        let matrix4 = new webgl_matrix4();
+        let matrix3 = new webgl_matrix3();
+        let eye = vector3.create(0.0, -5.0, 0.0);
+        let u = vector3.create();
+        let v = vector3.create();
+        let w = vector3.create();
+        let up = vector3.normalize(vector3.create(0.0, 0.0, 1.0));
+        let eye_to_norm = vector3.copy(vector3.create(),eye)
+        vector3.scale(w, vector3.normalize(eye_to_norm), -1.0);
+        vector3.crossProduct(u, w, up);
+        vector3.crossProduct(v, u, w);
+        let transformMatrix = matrix4.create();
+        let temp = matrix4.createFromVectors(u, v, w);
+        matrix4.inverse(transformMatrix, temp);
+        let trans = matrix3.createFromMatrix4(transformMatrix);
+        let u_trans_location = gl.getUniformLocation(program, 'u_trans');
+        gl.uniformMatrix3fv(u_trans_location, false, trans);
+
+        let u_aspectRatio_location = gl.getUniformLocation(program, 'u_aspectRatio');
+        gl.uniform1f(u_aspectRatio_location, canvas.width / canvas.height);
+
+        let u_eye_location = gl.getUniformLocation(program, 'u_eye');
+        gl.uniform3fv(u_eye_location, eye);
+        //---------------------------------------------------------------------------------------------------
+
+        //创建缓冲区
+        let buffer_id = gl.createBuffer();
+
+        //将它绑定到ARRAY_BUFFER（将其视为ARRAY_BUFFER = buffer_id）
+        //绑定缓冲区
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer_id);
+
+        //三个顶点构成一个三角形
+        let positions = [
+            -1.0, -1.0,
+            1.0, -1.0,
+            -1.0, 1.0,
+            1.0, -1.0,
+            1.0, 1.0,
+            -1.0, 1.0
+        ];
+
+        //通过绑定点向缓冲区绑定数据
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        //渲染
+
+        //使画布的像素数和显示大小匹配
+        webglUtils.resizeCanvasToDisplaySize(gl.canvas);
+
+        //设置视口
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+        //清除canvas
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        //应用着色器
+        gl.useProgram(program);
+
+        //在着色器中寻找attribute变量
+        let a_position_location = gl.getAttribLocation(program, 'a_position');
+
+        //建立着色器中attribute变量与缓冲区之间的连接
+        gl.enableVertexAttribArray(a_position_location);
+
+        const size = 2;//2维坐标：每次迭代运行提取两个单位数据
+        const type = gl.FLOAT;//每个单位的数据类型是32位浮点型
+        const normalize = false;//不需要归一化数据
+        const stride = 0;//每次迭代前进大小* sizeof（类型）以获得下一个位置
+        const offset1 = 0;//从缓冲起始位置开始读取
+
+        //从缓冲区取出数据
+        gl.vertexAttribPointer(a_position_location, size, type, normalize, stride, offset1);
+
+        let primitiveType = gl.TRIANGLES;
+        let offset2 = 0;
+        let count = 6;
+        gl.drawArrays(primitiveType, offset2, count);//画图
+    }
+
+    main();
+
+</script>
+
+</body>
+</html>
