@@ -43,16 +43,48 @@
 
     // 常量定义
 
-    #define MAX_MARCHING_STEPS 255// 最大raymarching次数
-    #define MIN_DIST.0// 起始raymarching距离
+    #define MAX_MARCHING_STEPS 256// 最大raymarching次数
+    #define MIN_DIST .0// 起始raymarching距离
     #define MAX_DIST 100.0// 最远raymarching距离
-    #define EPSILON.0001// 极小量
+    #define EPSILON .0001// 极小量
+
+    #define intensity 1.0// 光强
+    #define env_albedo 0.2
+    #define diffuse_coef 10.9
+    #define spec_coef 30.
 
     uniform mat3 u_trans;
     uniform float u_aspectRatio;
     uniform float u_cam_w;
     uniform vec3 u_eye;
+    uniform vec3 u_light_pos;
     varying vec2 v_position;
+
+    vec3 hsv2rgb(vec3 c){
+        vec4 K=vec4(1., 2./3., 1./3., 3.);
+        return c.z*mix(K.xxx, clamp(abs(fract(c.x+K.xyz)*6.-K.w)-K.x, 0., 1.), c.y);
+    }
+
+    vec3 rgb2hsv(vec3 c) {
+        float cMax=max(max(c.r, c.g), c.b),
+        cMin=min(min(c.r, c.g), c.b),
+        delta=cMax-cMin;
+        vec3 hsv=vec3(0., 0., cMax);
+        if (cMax>cMin){
+            hsv.y=delta/cMax;
+            if (c.r==cMax){
+                hsv.x=(c.g-c.b)/delta;
+            }
+            else if (c.g==cMax){
+                hsv.x=2.+(c.b-c.r)/delta;
+            }
+            else {
+                hsv.x=4.+(c.r-c.g)/delta;
+            }
+            hsv.x=fract(hsv.x/6.);
+        }
+        return hsv;
+    }
 
     float sphereSDF(vec3 p){
         return length(p)-1.;
@@ -64,7 +96,7 @@
     }
 
     float sceneSDF(vec3 p){
-        return roundBoxSDF(p, vec3(0.2), 0.1);
+        return roundBoxSDF(p, vec3(1.), 0.3);
         //return sphereSDF(p);
     }
 
@@ -83,45 +115,38 @@
         return end;
     }
 
-    //    vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord){
-    //        vec2 xy=fragCoord-size/2.;
-    //        float z=size.y/tan(radians(fieldOfView)/2.);
-    //        return normalize(vec3(xy, -z));
-    //    }
-
-    //    vec3 toCartesianCoord(vec3 SphereCoord){
-    //
-    //        float r=SphereCoord.x;
-    //        float theta=SphereCoord.y;
-    //        float phi=SphereCoord.z;
-    //
-    //        return vec3(r*sin(theta)*cos(phi), r*sin(theta)*sin(phi), r*cos(theta));
-    //    }
-
-    //    vec3 calDir(vec2 screen, vec3 eye){
-    //        vec3 direction=vec3(0);
-    //        vec3 w=normalize(-eye);
-    //        vec3 u=normalize(cross(w, vec3(0., 0., 1.)));
-    //        vec3 v=cross(u, w);
-    //
-    //        mat3 trans=mat3(u, v, w);
-    //        //mat3 ee=inverse(trans);
-    //        //direction=normalize(inverse(trans)*vec3((x-0.5)*w,(y-0.5)*h,d));
-    //        return direction;
-    //    }
-
+    vec3 estimateNormal(vec3 p) {
+        return normalize(vec3(
+        sceneSDF(vec3(p.x + EPSILON, p.y, p.z)) - sceneSDF(vec3(p.x - EPSILON, p.y, p.z)),
+        sceneSDF(vec3(p.x, p.y + EPSILON, p.z)) - sceneSDF(vec3(p.x, p.y - EPSILON, p.z)),
+        sceneSDF(vec3(p.x, p.y, p.z  + EPSILON)) - sceneSDF(vec3(p.x, p.y, p.z - EPSILON))
+        ));
+    }
 
     void main(){
-        vec3 cam = normalize(vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));
-        float dist = shortestDistanceToSurface(u_eye, u_trans*cam, MIN_DIST, MAX_DIST);
+        vec3 color=vec3(0.);
+        float monochrome = 0.;
+        vec3 cam = normalize(u_trans * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w)); //vector from cam to sample point
+        float dist = shortestDistanceToSurface(u_eye, cam, MIN_DIST, MAX_DIST);
 
         if (dist > MAX_DIST-EPSILON){
             // Didn't hit anything
-            gl_FragColor = vec4(0., 0., 0., 0.);
+            gl_FragColor = vec4(0., 0., 0., 1.);
             return;
         }
 
-        gl_FragColor = vec4(1., 0., 0., 1.);
+        vec3 disToLight = u_light_pos - u_eye - cam * dist;
+
+        monochrome += intensity * env_albedo;
+        monochrome += intensity * diffuse_coef / dot(disToLight, disToLight) * max(0., dot(estimateNormal(u_eye + dist * cam), normalize(disToLight)));
+        monochrome += intensity * spec_coef / dot(disToLight, disToLight) * pow(max(0., dot(estimateNormal(u_eye + dist * cam), normalize(normalize(disToLight) - cam))), 8.);
+
+        color = hsv2rgb(vec3(5., 62., 100.*monochrome)/100.);
+        //gl_FragColor = vec4(normalize(disToLight), 1.);
+        //gl_FragColor = vec4(u_trans*cam, 1.);
+        //gl_FragColor = vec4(normalize(normalize(disToLight) - cam), 1.);
+        //gl_FragColor = vec4(dot(estimateNormal(u_eye + dist*u_trans*cam), normalize(disToLight)),0.,0., 1.);
+        gl_FragColor = vec4(color, 1.);
     }
 </script>
 <script>
@@ -152,8 +177,8 @@
         let vector3 = new webgl_vector3();
         let matrix4 = new webgl_matrix4();
         let matrix3 = new webgl_matrix3();
-        let eye = vector3.create(-5.0, 5.0, 5.0);
-        let fov = 10.0;
+        let eye = vector3.create(2.0, -5.0, 3.0);
+        let fieldOfView = 40.0;
         let u = vector3.create();
         let v = vector3.create();
         let w = vector3.create();
@@ -171,12 +196,16 @@
         let u_aspectRatio_location = gl.getUniformLocation(program, 'u_aspectRatio');
         gl.uniform1f(u_aspectRatio_location, aspectRatio);
 
-        let cam_w = aspectRatio / 2 / Math.tan(fov / 360 * Math.PI);
+        let cam_w = aspectRatio / 2. / Math.tan(fieldOfView / 360. * Math.PI);
         let u_cam_w_location = gl.getUniformLocation(program, 'u_cam_w');
         gl.uniform1f(u_cam_w_location, cam_w);
 
         let u_eye_location = gl.getUniformLocation(program, 'u_eye');
         gl.uniform3fv(u_eye_location, eye);
+
+        let light_pos = vector3.create(-4., -3., 3.5);
+        let u_light_pos_location = gl.getUniformLocation(program, 'u_light_pos');
+        gl.uniform3fv(u_light_pos_location, light_pos);
         //---------------------------------------------------------------------------------------------------
 
         //创建缓冲区
