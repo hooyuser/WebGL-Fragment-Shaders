@@ -64,7 +64,7 @@
 
     // 常量定义
 
-    #define AA 2
+    #define AA 4
     #define HEIGHT 600.
 
     #define MAX_MARCHING_STEPS 256// 最大raymarching次数
@@ -164,7 +164,7 @@
 #if AA > 1
         for( int m=0; m<AA; m++ )
             for( int n=0; n<AA; n++ ){
-                vec2 o = (vec2(float(m),float(n)) / float(AA)- 0.5)/vec2(u_aspectRatio,1.)/HEIGHT*2.;
+                vec2 o = (vec2(float(m),float(n))*2./float(AA)-1.)/vec2(u_aspectRatio,1.)/HEIGHT*2.;
                 vec3 cam = normalize(u_trans * vec3((v_position.x+o.x)*u_aspectRatio, v_position.y+o.y, u_cam_w));//vector from cam to sample point
 #else
                 vec3 cam = normalize(u_trans * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from cam to sample point
