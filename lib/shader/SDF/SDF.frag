@@ -94,7 +94,7 @@ float infiniteConeSDF(vec3 p, vec2 c)
 }
 
 
-float planeSDF(vec3 p, vec3 n, float h)
+float planeSDF(vec3 p, vec3 n, float h) //n is the normal vector of the plane and h is the distance from origin.
 {
     // n must be normalized
     return dot(p, n) + h;

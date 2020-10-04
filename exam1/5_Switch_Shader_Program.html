@@ -88,8 +88,6 @@
     uniform float u_aspectRatio;
     uniform float u_cam_w;
     uniform vec3 u_eye;
-    //uniform vec3 u_light_pos;
-    uniform int u_marchingN;
     varying vec2 v_position;
 
     struct Light {
@@ -245,18 +243,125 @@
                 color = vec3(0., 0., 0.);
             }
             else {
-                if (u_marchingN>0){
-                    if (u_marchingN==MAX_MARCHING_STEPS){
-                        color = vec3(0., 0., 0.);
-                    }
-                    else {
-                        color=mix(vec3(51, 214, 255), vec3(255, 0, 0), dist_marchN[1]/float(MAX_MARCHING_STEPS))/255.;
-                    }
+                vec3 p = u_eye - dist * v;// position of sample point
+                vec3 n = calcNormal(p);//normal vector at the sample point
+                color = sceneRender(p, v, n, baseColor, metalness, roughness, specular);
+            }
+            total += color;
+            #if AA > 1
+        }
+        total /= float(AA * AA);
+        #endif
+        gl_FragColor = vec4(total, 1.);
+    }
+</script>
+
+<script id="fragment-shader-marchingN" type="x-shader/x-fragment">
+    precision highp float;
+
+    // 常量定义
+
+    #define AA 1
+    #define HEIGHT 600.
+    #define NB_LIGHTS 2
+
+    #define MAX_MARCHING_STEPS 256// 最大raymarching次数
+    #define MIN_DIST .0// 起始raymarching距离
+    #define MAX_DIST 100.0// 最远raymarching距离
+    #define EPSILON .0001// 极小量
+
+    #define intensity 1.0// 光强
+    #define ambient_albedo 0.25
+    #define diffuse_coef 20.
+    #define spec_coef 25.
+
+    #define PI 3.1415926535
+    #define EPS 1e-8
+    #define UPPER 0.9999
+
+    uniform mat3 u_trans;
+    uniform float u_aspectRatio;
+    uniform float u_cam_w;
+    uniform vec3 u_eye;
+    varying vec2 v_position;
+
+
+
+    float planeSDF(vec3 p, vec3 n, float h)
+    {
+        return dot(p, n) + h;
+    }
+
+    float sphereSDF(vec3 p, float radius)
+    {
+        return length(p)-radius;
+    }
+
+    float boxSDF(vec3 p, vec3 b)
+    {
+        vec3 q = abs(p) - b;
+        return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+    }
+
+    float opSmoothIntersection(float d1, float d2, float k)
+    {
+        float h = max(k-abs(d1-d2), 0.0);
+        return max(d1, d2) + h*h*0.25/k;
+    }
+
+    float opUnion(float d1, float d2) { return min(d1, d2); }
+
+    float sceneSDF(vec3 p){
+        return opUnion(opSmoothIntersection(boxSDF(p, vec3(1.)), sphereSDF(p, 1.2), 0.02),planeSDF(p, vec3(0.,0.,1.),1.2));
+    }
+
+    int marchingN = 0;
+
+    float shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
+        float depth=start;
+        //vec2 distance;
+        for (int i = 0; i<MAX_MARCHING_STEPS; i++){
+            float dist=sceneSDF(eye-depth*v);
+            if (dist<EPSILON){
+                marchingN = i;
+                return depth;
+            }
+            depth+=dist;
+            if (depth>=end){
+                marchingN = i;
+                return end;
+            }
+        }
+        marchingN = MAX_MARCHING_STEPS;
+        return end;
+    }
+
+
+
+    void main(){
+        vec3 color = vec3(0.);
+        vec3 total = vec3(0.0);
+
+        #if AA > 1
+        for (int m=0; m<AA; m++)
+        for (int n=0; n<AA; n++){
+            vec2 o = (vec2(float(m), float(n))*2./float(AA)-1.)/vec2(u_aspectRatio, 1.)/HEIGHT*2.;
+            vec3 v = -1. * normalize(u_trans * vec3((v_position.x+o.x)*u_aspectRatio, v_position.y+o.y, u_cam_w));//vector from sample point to cam
+            #else
+            vec3 v = -1. * normalize(u_trans * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from sample point to cam
+            #endif
+            float dist = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
+
+            if (dist > MAX_DIST-EPSILON){
+                // Didn't hit anything
+                color = vec3(0., 0., 0.);
+            }
+            else {
+                if (marchingN == MAX_MARCHING_STEPS){
+                    color = vec3(0., 0., 0.);
                 }
                 else {
-                    vec3 p = u_eye - dist * v;// position of sample point
-                    vec3 n = calcNormal(p);//normal vector at the sample point
-                    color = sceneRender(p, v, n, baseColor, metalness, roughness, specular);
+                    color=mix(vec3(51, 214, 255), vec3(255, 0, 0), float(marchingN)/float(MAX_MARCHING_STEPS))/255.;
                 }
             }
             total += color;
@@ -267,8 +372,13 @@
         gl_FragColor = vec4(total, 1.);
     }
 </script>
+
 <script>
     "use strict";
+
+    let vector3 = new webgl_vector3();
+    let matrix3 = new webgl_matrix3();
+    let canvas = document.getElementById('triangle');
 
     function sphereToCartesian(sphere) {
         return [sphere[0] * Math.sin(sphere[1] / 180 * Math.PI) * Math.cos(sphere[2] / 180 * Math.PI),
@@ -328,44 +438,81 @@
         gl.vertexAttribPointer(a_position_location, size, type, normalize, stride, offset1);
     }
 
-    function main() {
-        let canvas = document.getElementById('triangle');
+    function initialUniform(gl, program, cameraAngle){
+        let camera = vector3.createFrom(sphereToCartesian(cameraAngle));  // Camera Position
+        let fieldOfView = 30.0;
 
+        let trans = matrix3.camToWorld(90.0 - cameraAngle[1], cameraAngle[2]);
+        let u_trans_location = gl.getUniformLocation(program, 'u_trans');
+        gl.uniformMatrix3fv(u_trans_location, false, trans);
+
+        let aspectRatio = canvas.width / canvas.height
+        let u_aspectRatio_location = gl.getUniformLocation(program, 'u_aspectRatio');
+        gl.uniform1f(u_aspectRatio_location, aspectRatio);
+
+        let cam_w = aspectRatio / 2. / Math.tan(fieldOfView / 360. * Math.PI);
+        let u_cam_w_location = gl.getUniformLocation(program, 'u_cam_w');
+        gl.uniform1f(u_cam_w_location, cam_w);
+
+        let u_eye_location = gl.getUniformLocation(program, 'u_eye');
+        gl.uniform3fv(u_eye_location, camera);
+    }
+
+    function updateCam(gl, program, cameraAngle){
+        let trans = matrix3.camToWorld(90.0 - cameraAngle[1], cameraAngle[2]);
+        let u_trans_location = gl.getUniformLocation(program, 'u_trans');
+        gl.uniformMatrix3fv(u_trans_location, false, trans);
+
+        let camera = vector3.createFrom(sphereToCartesian(cameraAngle));  // Camera Position
+        let u_eye_location = gl.getUniformLocation(program, 'u_eye');
+        gl.uniform3fv(u_eye_location, camera);
+    }
+
+    function main() {
         //判断浏览器是否支持webgl， antialias用于设置抗锯齿，
-        let gl = canvas.getContext('webgl', {antialias: true, depth: false});
+        let gl = canvas.getContext('webgl', {antialias: false, depth: false});
         if (!gl) {
             console.log("您的浏览器不支持webgl！");
             return null;
         }
 
-
         //获取GLSL文本
         let vShaderSource = document.getElementById('vertex-shader').text;
         let fShaderSource = document.getElementById('fragment-shader').text;
+        let fShaderMarchingNSource = document.getElementById('fragment-shader-marchingN').text;
         // import vShaderSource from '../lib/shader/draw_2d/draw_2d_vert.js';
         // import fShaderSource from '../lib/shader/draw_2d/draw_2d_frag.js';
 
         //创建、编译和链接着色器
-        let program = initShader(gl, vShaderSource, fShaderSource);
-        gl.useProgram(program);
+        let programMain = initShader(gl, vShaderSource, fShaderSource);
+        let programMarchingN = initShader(gl, vShaderSource, fShaderMarchingNSource);
+        let program = programMain;
 
+        gl.useProgram(program);
         //为Attribute变量创建buffer
         createBuffer(gl, program);
+
+        let cameraSphereCoor = [6.0, 90.0, -90.0];  // (r,theta,phi) camera Spherical coordinate
+        initialUniform(gl, program, cameraSphereCoor)
 
         //---------------------------------------------------------------------------------------------------
 
         //---------------------------------------------------------------------------------------------------
         let marchingN = document.getElementById("marchingN");
-        let u_marchingN_location = gl.getUniformLocation(program, 'u_marchingN');
+
         marchingN.onclick = function () {
             if (this.checked === true) {
-                gl.uniform1i(u_marchingN_location, 1);
+                program = programMarchingN
             } else {
-                gl.uniform1i(u_marchingN_location, 0);
+                program = programMain
             }
+            gl.useProgram(program);
+            //为Attribute变量创建buffer
+            createBuffer(gl, program);
+            initialUniform(gl, program, cameraSphereCoor)
         }
 
-        function initEventHandles(domElement, cameraAngle) {
+        function initEventHandles(domElement, cameraSphereCoor) {
             let dragging = false;
             let lastX = -1;
             let lastY = -1;
@@ -400,9 +547,11 @@
                 if (dragging) {
                     // 旋转比例--速度
                     let factor = 180.0;
+
                     // 限制 x轴的旋转角度 -90 --- 90
-                    cameraAngle[1] -= factor * (y - lastY) / domElement.height;
-                    cameraAngle[2] -= factor * (x - lastX) / domElement.width;
+                    cameraSphereCoor[1] -= factor * (y - lastY) / domElement.height;
+                    cameraSphereCoor[2] -= factor * (x - lastX) / domElement.width;
+                    updateCam(gl, program, cameraSphereCoor)
                 }
                 lastX = x;
                 lastY = y;
@@ -412,17 +561,13 @@
 
             function onMouseWheel(event) {
                 event.preventDefault();
-                cameraAngle[0] += event.deltaY * 0.003;
+                cameraSphereCoor[0] += event.deltaY * 0.003;
+                updateCam(gl, program, cameraSphereCoor)
             }
 
         }
 
-        let cameraAngle = [6.0, 90.0, -90.0];  // (r,theta,phi)
-        let vector3 = new webgl_vector3();
-        let matrix3 = new webgl_matrix3();
-        let initialCameraAngle = [...cameraAngle];
-
-        initEventHandles(canvas, cameraAngle);
+        initEventHandles(canvas, cameraSphereCoor);
 
         let stats = new Stats();
         stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
@@ -431,24 +576,6 @@
         function drawScene() {
 
             stats.begin();
-
-            let camera = vector3.createFrom(sphereToCartesian(cameraAngle));  // Camera Position
-            let fieldOfView = 30.0;
-
-            let trans = matrix3.camToWorld(90.0 - cameraAngle[1], cameraAngle[2]);
-            let u_trans_location = gl.getUniformLocation(program, 'u_trans');
-            gl.uniformMatrix3fv(u_trans_location, false, trans);
-
-            let aspectRatio = canvas.width / canvas.height
-            let u_aspectRatio_location = gl.getUniformLocation(program, 'u_aspectRatio');
-            gl.uniform1f(u_aspectRatio_location, aspectRatio);
-
-            let cam_w = aspectRatio / 2. / Math.tan(fieldOfView / 360. * Math.PI);
-            let u_cam_w_location = gl.getUniformLocation(program, 'u_cam_w');
-            gl.uniform1f(u_cam_w_location, cam_w);
-
-            let u_eye_location = gl.getUniformLocation(program, 'u_eye');
-            gl.uniform3fv(u_eye_location, camera);
 
             // let inverseTrans = matrix3.worldToCam(90.0 - initialCameraAngle[1], initialCameraAngle[2]);
             // let light_pos = vector3.create();
