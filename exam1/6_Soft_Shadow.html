@@ -70,11 +70,12 @@
     #define AA 2
     #define HEIGHT 600.
     #define NB_LIGHTS 2
+    #define MATERIAL_N 2
 
     #define MAX_MARCHING_STEPS 256// 最大raymarching次数
     #define MIN_DIST 0.0// 起始raymarching距离
     #define MAX_DIST 50.0// 最远raymarching距离
-    #define EPSILON 0.0001// 极小量
+    #define EPSILON 0.0001// raymarching停止距离
     #define MIN_SHADOW_DIST 0.01
     #define MAX_SHADOW_DIST 10.0
 
@@ -90,6 +91,10 @@
     uniform float u_aspectRatio;
     uniform float u_cam_w;
     uniform vec3 u_eye;
+    uniform vec3 u_baseColor[MATERIAL_N];
+    uniform float u_metalness[MATERIAL_N];
+    uniform float u_roughness[MATERIAL_N];
+    uniform float u_specular[MATERIAL_N];
     varying vec2 v_position;
 
     struct Light {
@@ -97,6 +102,11 @@
         vec3 color;
     };
     Light lights[NB_LIGHTS];
+
+    struct PointInfo{
+        float sd;  // signed distance
+        int materialID;
+    };
 
     mat3 rotationZ( float angle ) {
         return mat3(cos(angle),		-sin(angle),	0.,
@@ -152,35 +162,49 @@
         return max(d1, d2) + h*h*0.25/k;
     }
 
-    float opUnion(float d1, float d2) { return min(d1, d2); }
-
-    float sceneSDF(vec3 p){
-        return opUnion(opSmoothIntersection(boxSDF(rotationZ(u_angle)*p, vec3(1.)), sphereSDF(rotationZ(u_angle)*p, 1.2), 0.02),planeSDF(p, vec3(0.,0.,1.),1.2));
+    PointInfo opUnion(PointInfo d1, PointInfo d2) {
+        if (d1.sd < d2.sd){
+            return d1;
+        }
+        else{
+            return d2;
+        }
     }
 
-    vec2 shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
+    PointInfo sceneMap(vec3 p){
+        PointInfo SDF[2];
+        SDF[0] = PointInfo(opSmoothIntersection(boxSDF(rotationZ(u_angle)*p, vec3(1.)), sphereSDF(rotationZ(u_angle)*p, 1.2), 0.02),0);
+        SDF[1] = PointInfo(planeSDF(p, vec3(0.,0.,1.),1.2),1);
+        return opUnion(SDF[0],SDF[1]);
+    }
+
+    PointInfo shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
         float depth=start;
-        //vec2 distance;
+        PointInfo dist;
+
         for (int i=0; i<MAX_MARCHING_STEPS; i++){
-            float dist=sceneSDF(eye-depth*v);
-            if (dist<EPSILON){
-                return vec2(depth, float(i));
+            dist = sceneMap(eye - depth * v);
+            if (dist.sd < EPSILON){
+                dist.sd = depth;
+                return dist;
             }
-            depth+=dist;
+            depth+=dist.sd;
             if (depth>=end){
-                return vec2(end, float(i));
+                dist.sd = end;
+                return dist;
             }
         }
-        return vec2(end, float(MAX_MARCHING_STEPS));
+        dist.sd = end;
+        return dist;
     }
 
     vec3 calcNormal(vec3  p) { // for function f(p)
         const float h = 0.0001;// replace by an appropriate value
         const vec2 k = vec2(1, -1);
-        return normalize(k.xyy*sceneSDF(p + k.xyy*h) +
-        k.yyx*sceneSDF(p + k.yyx*h) +
-        k.yxy*sceneSDF(p + k.yxy*h) +
-        k.xxx*sceneSDF(p + k.xxx*h));
+        return normalize(k.xyy*sceneMap(p + k.xyy*h).sd +
+        k.yyx*sceneMap(p + k.yyx*h).sd +
+        k.yxy*sceneMap(p + k.yxy*h).sd +
+        k.xxx*sceneMap(p + k.xxx*h).sd);
     }
 
     float calcSoftshadow(vec3 ro, vec3 rd, float mint, float tmax)
@@ -191,13 +215,13 @@
 
         for( int i=0; i<32; i++ )
         {
-            float h = sceneSDF( ro + rd*t );
+            float h = sceneMap(ro+rd*t).sd;
             // use this if you are getting artifact on the first iteration, or unroll the
             // first iteration out of the loop
             //float y = (i==0) ? 0.0 : h*h/(2.0*ph);
             float y = h*h/(2.0*ph);
             float d = sqrt(h*h-y*y);
-            res = min( res, 10.0*d/max(EPSILON,t-y) );
+            res = min( res, 10.0*d/max(EPS,t-y) );
             ph = h;
             t += h;
             if( res<0.0001 || t>tmax ) break;
@@ -205,7 +229,23 @@
         return res;
     }
 
-    vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, vec3 baseColor, float metalness, float roughness, float specular){
+    vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, int mID){
+        vec3 baseColor;
+        float metalness, roughness, specular;
+        if (mID == 0)
+        {
+            baseColor = u_baseColor[0];
+            metalness = u_metalness[0];
+            roughness = u_roughness[0];
+            specular = u_specular[0];
+        }
+        else {
+            baseColor = u_baseColor[1];
+            metalness = u_metalness[1];
+            roughness = u_roughness[1];
+            specular = u_specular[1];
+        }
+
         float falloffLength = dot(light.pos - p,light.pos - p);
         vec3 l = (light.pos - p)/sqrt(falloffLength);//vector from sample point to light
         vec3 h = normalize(v + l);//normal vector of the microface at the sample point
@@ -231,10 +271,10 @@
         return c * calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
     }
 
-    vec3 sceneRender(vec3 p, vec3 v, vec3 n, vec3 baseColor, float metalness, float roughness, float specular){
+    vec3 sceneRender(vec3 p, vec3 v, vec3 n, int mID){
         vec3 color = vec3(AMBIENT_ALBEDO);
         for (int i = 0; i < NB_LIGHTS; ++i) {
-            color += objectPBRLighting (lights[i], p, v, n, baseColor, metalness, roughness, specular);
+            color += objectPBRLighting (lights[i], p, v, n, mID);
         }
         return color;
     }
@@ -243,8 +283,10 @@
         vec3 color = vec3(0.);
         vec3 total = vec3(0.0);
 
+
+
         lights[0] = Light(vec3(-2.0, -4.0, 5.0), vec3(1.0));
-        lights[1] = Light(vec3(5.0, -2.0, 10.0), vec3(1.0));
+        lights[1] = Light(vec3(5.0, -2.0, 10.0), vec3(2.0));
 
         #if AA > 1
         for (int m=0; m<AA; m++)
@@ -254,22 +296,23 @@
             #else
             vec3 v = -1. * normalize(u_trans_cam * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from sample point to cam
             #endif
-            vec2 dist_marchN = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
-            float dist = dist_marchN[0];
 
-            vec3 baseColor = vec3(0.8, 0.9, 1.0);
-            float metalness = 0.0;
-            float roughness = 0.2;
-            float specular =0.5;
+            PointInfo distMID = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
 
-            if (dist > MAX_DIST-EPSILON){
+            if (distMID.sd > MAX_DIST-EPSILON){
                 // Didn't hit anything
                 color = vec3(0., 0., 0.);
             }
             else {
-                vec3 p = u_eye - dist * v;// position of sample point
+                vec3 p = u_eye - distMID.sd * v;// position of sample point
                 vec3 n = calcNormal(p);//normal vector at the sample point
-                color = sceneRender(p, v, n, baseColor, metalness, roughness, specular);
+//                if(distMID.materialID==0){
+//                    color = vec3(1.,0.,0.);
+//                }
+//                else{
+//                    color = vec3(0.,1.,0.);
+//                }
+                color = sceneRender(p, v, n, distMID.materialID);
             }
             total += color;
             #if AA > 1
@@ -340,7 +383,7 @@
 
     float opUnion(float d1, float d2) { return min(d1, d2); }
 
-    float sceneSDF(vec3 p){
+    float sceneMap(vec3 p){
         return opUnion(opSmoothIntersection(boxSDF(rotationZ(u_angle)*p, vec3(1.)), sphereSDF(rotationZ(u_angle)*p, 1.2), 0.02),planeSDF(p, vec3(0.,0.,1.),1.2));
     }
 
@@ -350,7 +393,7 @@
         float depth=start;
         //vec2 distance;
         for (int i = 0; i<MAX_MARCHING_STEPS; i++){
-            float dist=sceneSDF(eye-depth*v);
+            float dist=sceneMap(eye-depth*v);
             if (dist<EPSILON){
                 marchingN = i;
                 return depth;
@@ -480,6 +523,22 @@
         let u_cam_w_location = gl.getUniformLocation(program, 'u_cam_w');
         gl.uniform1f(u_cam_w_location, cam_w);
 
+        let baseColor = [0.8, 0.9, 1.0,
+                         108/255,63/255,175/255];
+        let u_baseColor_location = gl.getUniformLocation(program, 'u_baseColor');
+        gl.uniform3fv(u_baseColor_location, new Float32Array(baseColor));
+
+        let metalness = [0.0, 0.0];
+        let u_metalness_location = gl.getUniformLocation(program, 'u_metalness');
+        gl.uniform1fv(u_metalness_location, new Float32Array(metalness));
+
+        let roughness = [0.2, 0.4];
+        let u_roughness_location = gl.getUniformLocation(program, 'u_roughness');
+        gl.uniform1fv(u_roughness_location, new Float32Array(roughness));
+
+        let specular = [0.5, 0.5];
+        let u_specular_location = gl.getUniformLocation(program, 'u_specular');
+        gl.uniform1fv(u_specular_location, new Float32Array(specular));
     }
 
     function updateCam(gl, program, cameraAngle) {
