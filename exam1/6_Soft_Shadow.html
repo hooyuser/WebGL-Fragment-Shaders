@@ -72,9 +72,11 @@
     #define NB_LIGHTS 2
 
     #define MAX_MARCHING_STEPS 256// 最大raymarching次数
-    #define MIN_DIST .0// 起始raymarching距离
-    #define MAX_DIST 100.0// 最远raymarching距离
-    #define EPSILON .0001// 极小量
+    #define MIN_DIST 0.0// 起始raymarching距离
+    #define MAX_DIST 50.0// 最远raymarching距离
+    #define EPSILON 0.0001// 极小量
+    #define MIN_SHADOW_DIST 0.01
+    #define MAX_SHADOW_DIST 10.0
 
     #define AMBIENT_ALBEDO 0.05
 
@@ -181,6 +183,28 @@
         k.xxx*sceneSDF(p + k.xxx*h));
     }
 
+    float calcSoftshadow(vec3 ro, vec3 rd, float mint, float tmax)
+    {
+        float res = 1.0;
+        float t = mint;
+        float ph = 1e10; // big, such that y = 0 on the first iteration
+
+        for( int i=0; i<32; i++ )
+        {
+            float h = sceneSDF( ro + rd*t );
+            // use this if you are getting artifact on the first iteration, or unroll the
+            // first iteration out of the loop
+            //float y = (i==0) ? 0.0 : h*h/(2.0*ph);
+            float y = h*h/(2.0*ph);
+            float d = sqrt(h*h-y*y);
+            res = min( res, 10.0*d/max(EPSILON,t-y) );
+            ph = h;
+            t += h;
+            if( res<0.0001 || t>tmax ) break;
+        }
+        return res;
+    }
+
     vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, vec3 baseColor, float metalness, float roughness, float specular){
         float falloffLength = dot(light.pos - p,light.pos - p);
         vec3 l = (light.pos - p)/sqrt(falloffLength);//vector from sample point to light
@@ -193,23 +217,18 @@
 
         float d = (dotNH * a * a - dotNH) * dotNH + 1.;
         float D = a * a / (PI * d * d);//GGX
-        //        float k = a * 0.5;
-        //        float k = (roughness+1.)*(roughness+1.)/8.;
-        //        float G = dotNL / (dotNL * (1. - k) + k) * dotNV / (dotNV * (1. - k) + k);
-        //        float G = 1. / (dotNL * (1. - k) + k) / (dotNV * (1. - k) + k);
         float Vis_SmithV = dotNL * (dotNV * (1. - a) + a);
         float Vis_SmithL = dotNV * (dotNL * (1. - a) + a);
         float Vis = 0.5 / (Vis_SmithV + Vis_SmithL);// VIS = G / (4. * dotNV * dotNL)
         vec3 F0 = mix(vec3(0.16 * specular * specular), baseColor, metalness);
         vec3 F = F0 + (1. - F0) * (1. - dotHV) * (1. - dotHV) * (1. - dotHV) * (1. - dotHV) * (1. - dotHV);
-        //        vec3 fSpecular = F * D * G / (4. * dotNV * dotNL);
-        //        vec3 fSpecular = F * D * Vis;
         vec3 kD = (1. - F) * (1. - metalness);
-        //        vec3 fDiffuse = baseColor / PI;  // Lambert
-        //        vec3 f = kD * fDiffuse + fSpecular;
+        //vec3 fDiffuse = baseColor / PI;
+        //vec3 fSpecular = F * D * G / (4. * dotNV * dotNL) = F * D * Vis;
+        //vec3 f = kD * fDiffuse + fSpecular;
         vec3 f = kD * baseColor / PI + F * D * Vis;
         vec3 c = PI * f * light.color * dotNL * 17. / falloffLength;
-        return c;
+        return c * calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
     }
 
     vec3 sceneRender(vec3 p, vec3 v, vec3 n, vec3 baseColor, float metalness, float roughness, float specular){
