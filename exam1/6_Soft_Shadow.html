@@ -15,28 +15,83 @@
         #container {
             display: grid;
             margin-top: 50px;
-            grid-template-columns: 200px 1000px 300px;
+            grid-template-columns: 1fr 910px 1.5fr;
+            grid-template-rows: 120px 600px;
+            grid-template-areas:
+                    "stat    main control_area"
+                    "hue_bar main control_area";
             justify-items: center;
             align-content: center;
         }
 
         .item-1 {
-            justify-self: end;
+            grid-area: stat;
+            /*justify-self: center;*/
+        }
+
+        .item-2 {
+            grid-area: hue_bar;
+            visibility: hidden;
         }
 
         .item-3 {
-            justify-self: start;
+            grid-area: main;
+        }
+
+        .item-4 {
+            grid-area: control_area;
+        }
+        #hue_container{
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            grid-template-rows: repeat(5, 1fr);
+            grid-template-areas:
+                    "top1 hue_image"
+                    "top2 hue_image"
+                    "top3 hue_image"
+                    "top4 hue_image"
+                    "top5 hue_image";
+            justify-items: end;
+            column-gap: 8px
+        }
+        .hue-1{
+            grid-area:hue_image;
         }
     </style>
 </head>
 <body>
 <div id="container">
-    <div id="item_1" , class="item-1">
+    <div id="stats" class="item-1">
+
     </div>
-    <div class="item-2">
-        <canvas id="triangle" width="900" height="600"></canvas>
+    <div id="hue" class="item-2">
+        <div id="hue_container">
+            <div class="hue-1">
+                <img src="../src/hue.png" width="50"  />
+                <br>
+                <div style="height: 40px"></div>
+            </div>
+            <div class="hue-2">
+                256
+            </div>
+            <div class="hue-3">
+                192
+            </div>
+            <div class="hue-3">
+                128
+            </div>
+            <div class="hue-4">
+                64
+            </div>
+            <div class="hue-5">
+                1
+            </div>
+        </div>
     </div>
     <div class="item-3">
+        <canvas id="triangle" width="900" height="600"></canvas>
+    </div>
+    <div class="item-4">
         <input type="checkbox" id="animate" checked="checked"> Animate
         <br><br>
         <input type="checkbox" id="marchingN"> Show Marching Number
@@ -112,11 +167,6 @@
         return mat3(cos(angle),		-sin(angle),	0.,
                     sin(angle),		cos(angle),     0.,
                     0.        , 	0.,	            1.);
-    }
-
-    vec3 hsv2rgb(vec3 c){
-        vec4 K=vec4(1., 2./3., 1./3., 3.);
-        return c.z*mix(K.xxx, clamp(abs(fract(c.x+K.xyz)*6.-K.w)-K.x, 0., 1.), c.y);
     }
 
     vec3 rgb2hsv(vec3 c) {
@@ -353,6 +403,11 @@
     uniform vec3 u_eye;
     varying vec2 v_position;
 
+    vec3 hsv2rgb(vec3 c){
+        vec4 K=vec4(1., 2./3., 1./3., 3.);
+        return c.z*mix(K.xxx, clamp(abs(fract(c.x+K.xyz)*6.-K.w)-K.x, 0., 1.), c.y);
+    }
+
     mat3 rotationZ( float angle ) {
         return mat3(cos(angle),		-sin(angle),	0.,
         sin(angle),		cos(angle),     0.,
@@ -433,7 +488,8 @@
                     color = vec3(0., 0., 0.);
                 }
                 else {
-                    color=mix(vec3(51, 214, 255), vec3(255, 0, 0), float(marchingN)/float(MAX_MARCHING_STEPS))/255.;
+                    float ratio = float(marchingN)/float(MAX_MARCHING_STEPS);
+                    color=hsv2rgb(vec3(mix(0.65,0.,ratio), mix(0.75,1.,ratio), mix(0.71,1.,ratio)));
                 }
             }
             total += color;
@@ -580,7 +636,7 @@
         //为Attribute变量创建buffer
         createBuffer(gl, program);
 
-        let cameraSphereCoor = [4.0, 90.0, -90.0];  // (r,theta,phi) camera Spherical coordinate
+        let cameraSphereCoor = [5.0, 90.0, -90.0];  // (r,theta,phi) camera Spherical coordinate
         initialUniform(gl, program, cameraSphereCoor)
 
         //---------------------------------------------------------------------------------------------------
@@ -597,8 +653,10 @@
         marchingN.onclick = function () {
             if (this.checked === true) {
                 program = programMarchingN
+                document.getElementById("hue").style.visibility="visible"
             } else {
                 program = programMain
+                document.getElementById("hue").style.visibility="hidden"
             }
             gl.useProgram(program);
             //为Attribute变量创建buffer
@@ -610,7 +668,7 @@
 
         let stats = new Stats();
         stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
-        document.getElementById("item_1").appendChild(stats.dom);
+        document.getElementById("stats").appendChild(stats.dom);
 
         let then = 0;
         let rotZAngle = 0;
