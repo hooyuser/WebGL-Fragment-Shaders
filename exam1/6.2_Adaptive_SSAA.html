@@ -107,7 +107,7 @@
 
     // 常量定义
 
-    #define AA 1
+    #define AA 4
     #define HEIGHT 600.
     #define NB_LIGHTS 2
     #define MATERIAL_N 2
@@ -213,7 +213,7 @@
         return opUnion(SDF[0], SDF[1]);
     }
 
-    PointInfo shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
+    PointInfo shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end, out int marchingN){ //v == -marchingDirection
         float depth=start;
         PointInfo dist;
 
@@ -221,15 +221,18 @@
             dist = sceneMap(eye - depth * v);
             if (dist.sd < EPSILON){
                 dist.sd = depth;
+                marchingN = i;
                 return dist;
             }
             depth+=dist.sd;
             if (depth>=end){
                 dist.sd = end;
+                marchingN = i;
                 return dist;
             }
         }
         dist.sd = end;
+        marchingN = MAX_MARCHING_STEPS;
         return dist;
     }
 
@@ -332,7 +335,10 @@
             vec3 v = -1. * normalize(u_trans_cam * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from sample point to cam
             #endif
 
-            PointInfo distMID = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
+            int marchingN = 0;
+            PointInfo distMID = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST, marchingN);//distance between cam and sample point
+
+
 
             if (distMID.sd > MAX_DIST-EPSILON){
                 // Didn't hit anything
@@ -350,6 +356,12 @@
                 color = sceneRender(p, v, n, distMID.materialID);
             }
             total += color;
+            if(marchingN <10 )
+            {
+                gl_FragColor = vec4(color, 1.);
+                //gl_FragColor = vec4(1.);
+                return;
+            }
             #if AA > 1
         }
         total /= float(AA * AA);

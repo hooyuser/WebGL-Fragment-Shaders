@@ -112,7 +112,7 @@
     #define NB_LIGHTS 2
     #define MATERIAL_N 2
 
-    #define MAX_MARCHING_STEPS 256// 最大raymarching次数
+    #define MAX_MARCHING_STEPS 512// 最大raymarching次数
     #define MIN_DIST 0.0// 起始raymarching距离
     #define MAX_DIST 50.0// 最远raymarching距离
     #define EPSILON 0.0001// raymarching停止距离
@@ -147,6 +147,11 @@
         float sd;// signed distance
         int materialID;
     };
+
+    vec3 hsv2rgb(vec3 c){
+        vec4 K=vec4(1., 2./3., 1./3., 3.);
+        return c.z*mix(K.xxx, clamp(abs(fract(c.x+K.xyz)*6.-K.w)-K.x, 0., 1.), c.y);
+    }
 
     mat3 rotationZ(float angle) {
         return mat3(cos(angle), -sin(angle), 0.,
@@ -213,15 +218,50 @@
         return opUnion(SDF[0], SDF[1]);
     }
 
-    PointInfo shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
-        float depth=start;
+//    float shortestDistanceToSurface2(vec3 eye, vec3 v, float start, float end, out int marchingN, float coff, out float midDepth, out float minThreshold){ //v == -marchingDirection
+//        float depth=start;
+//
+//        for (int i = 0; i<MAX_MARCHING_STEPS; i++){
+//            float dist=sceneMap(eye-depth*v);
+//            if (dist<EPSILON){
+//                marchingN = i;
+//                return depth;
+//            }
+//            else if (dist/(coff * depth)< minThreshold - EPS){
+//                midDepth = depth;
+//                minThreshold = dist/(coff * depth);
+//            }
+//            depth+=dist;
+//            if (depth>=end){
+//                marchingN = i;
+//                return end;
+//            }
+//        }
+//        marchingN = MAX_MARCHING_STEPS;
+//        return end;
+//    }
+
+    PointInfo shortestDistanceToSurface2(vec3 eye, vec3 v, float start, float end, float coff, out float midDepth, out float minThreshold,out int midN){ //v == -marchingDirection
+        float depth=start+EPS;
         PointInfo dist;
+        float temp = minThreshold;
+        int checking = 1;
 
         for (int i=0; i<MAX_MARCHING_STEPS; i++){
             dist = sceneMap(eye - depth * v);
             if (dist.sd < EPSILON){
                 dist.sd = depth;
                 return dist;
+            }
+//            else if (dist.sd/(coff * depth)< minThreshold - 150.*EPSILON*float(i)){//3000 5000 8000
+            else if (checking>0&&dist.sd/(coff * depth)< minThreshold - EPSILON){//3000 5000 8000
+                midDepth = depth;
+                midN=i;
+                minThreshold = dist.sd/(coff * depth);
+                checking = 2;
+            }
+            else if (checking == 2 && dist.sd/(coff * depth)> minThreshold - EPSILON){
+                checking = 0;
             }
             depth+=dist.sd;
             if (depth>=end){
@@ -232,6 +272,26 @@
         dist.sd = end;
         return dist;
     }
+
+//    PointInfo shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
+//        float depth=start;
+//        PointInfo dist;
+//
+//        for (int i=0; i<MAX_MARCHING_STEPS; i++){
+//            dist = sceneMap(eye - depth * v);
+//            if (dist.sd < EPSILON){
+//                dist.sd = depth;
+//                return dist;
+//            }
+//            depth+=dist.sd;
+//            if (depth>=end){
+//                dist.sd = end;
+//                return dist;
+//            }
+//        }
+//        dist.sd = end;
+//        return dist;
+//    }
 
     vec3 calcNormal(vec3  p) { // for function f(p)
         const float h = 0.0001;// replace by an appropriate value
@@ -323,16 +383,30 @@
         lights[0] = Light(vec3(-2.0, -4.0, 5.0), vec3(1.0));
         lights[1] = Light(vec3(5.0, -2.0, 10.0), vec3(2.0));
 
-        #if AA > 1
+#if AA > 1
         for (int m=0; m<AA; m++)
         for (int n=0; n<AA; n++){
             vec2 o = (vec2(float(m), float(n))*2./float(AA)-1.)/vec2(u_aspectRatio, 1.)/HEIGHT*2.;
-            vec3 v = -1. * normalize(u_trans_cam * vec3((v_position.x+o.x)*u_aspectRatio, v_position.y+o.y, u_cam_w));//vector from sample point to cam
-            #else
+            float screenX = (v_position.x+o.x)*u_aspectRatio;
+            float screenY = v_position.y+o.y;
+            vec3 v = -1. * normalize(u_trans_cam * vec3(screenX, screenY, u_cam_w));//vector from sample point to cam
+            float cof = tan((1. / (u_cam_w * u_cam_w + screenX * screenX) + 1. / (u_cam_w * u_cam_w + screenY * screenY)) * u_cam_w / HEIGHT / float(AA));
+#else
             vec3 v = -1. * normalize(u_trans_cam * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from sample point to cam
-            #endif
+            float screenX = (v_position.x)*u_aspectRatio;
+            float screenY = v_position.y;
 
-            PointInfo distMID = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
+            //float cof = 0.000024;
+//            float cof = 1./HEIGHT/sqrt(screenX*screenX+screenY*screenY+u_cam_w*u_cam_w-1./(HEIGHT*HEIGHT));
+            float cof = tan((1./(u_cam_w*u_cam_w+(v_position.x*u_aspectRatio)*(v_position.x*u_aspectRatio))+1./(u_cam_w*u_cam_w+v_position.y*v_position.y))*u_cam_w/HEIGHT);
+#endif
+
+//            PointInfo distMID = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
+            float midDepth = -2.;
+            float minThreshold = 2.;
+            int midN =0;
+            PointInfo distMID = shortestDistanceToSurface2(u_eye, v, MIN_DIST, MAX_DIST, cof, midDepth, minThreshold,midN);//distance between cam and sample point
+
 
             if (distMID.sd > MAX_DIST-EPSILON){
                 // Didn't hit anything
@@ -349,11 +423,40 @@
                 //                }
                 color = sceneRender(p, v, n, distMID.materialID);
             }
+            if (midDepth>-1.){
+//                float radius = midDepth * cof;
+//                vec3 v1 = cross(vec3(0.,0.,1.),v);
+//                vec3 v2 = cross(v1,v);
+//                vec3 v3 = cross(v2,v);
+//                vec3 v4 = cross(v3,v);
+//                d1 = sceneMap(v1/radius-midDepth*v);
+//                d2 = sceneMap(v2/radius-midDepth*v);
+//                d3 = sceneMap(v3/radius-midDepth*v);
+//                d4 = sceneMap(v4/radius-midDepth*v);
+                vec3 pM = u_eye - midDepth * v;// position of sample point
+                vec3 nM = calcNormal(pM);
+                vec3 colorM = sceneRender(pM, v, nM, sceneMap(pM).materialID);
+
+                color = mix(colorM,color,clamp(minThreshold/2.,0.,1.));
+                float ratio = float(midN)/float(MAX_MARCHING_STEPS);
+//                color=hsv2rgb(vec3(mix(0.65, 0., ratio), mix(0.75, 1., ratio), mix(0.71, 1., ratio)));
+
+//                if(sceneMap(pM).materialID==0){
+//                                        color = vec3(1.,0.,0.);
+//                                    }
+//                                    else{
+//                                        color = vec3(0.,1.,0.);
+//                                    }
+                //color = vec3(smoothstep(0.,1.,cof));
+            }
+            //color = vec3(smoothstep(0.,4./HEIGHT,distMID.sd*cof));
+//            color = vec3(float(flag));
+
             total += color;
-            #if AA > 1
+#if AA > 1
         }
         total /= float(AA * AA);
-        #endif
+#endif
         gl_FragColor = vec4(total, 1.);
     }
 </script>
@@ -427,11 +530,9 @@
         return opUnion(opSmoothIntersection(boxSDF(rotationZ(u_angle)*p, vec3(1.)), sphereSDF(rotationZ(u_angle)*p, 1.2), 0.02), planeSDF(p, vec3(0., 0., 1.), 1.2));
     }
 
-    int marchingN = 0;
-
-    float shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end){ //v == -marchingDirection
+    float shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end, out int marchingN){ //v == -marchingDirection
         float depth=start;
-        //vec2 distance;
+
         for (int i = 0; i<MAX_MARCHING_STEPS; i++){
             float dist=sceneMap(eye-depth*v);
             if (dist<EPSILON){
@@ -449,7 +550,6 @@
     }
 
 
-
     void main(){
         vec3 color = vec3(0.);
         vec3 total = vec3(0.0);
@@ -457,12 +557,15 @@
         #if AA > 1
         for (int m=0; m<AA; m++)
         for (int n=0; n<AA; n++){
-            vec2 o = (vec2(float(m), float(n))*2./float(AA)-1.)/vec2(u_aspectRatio, 1.)/HEIGHT*2.;
+            //the length of every pixel is 2./HEIGHT
+            vec2 o = (vec2(float(m), float(n))*2./float(AA)-1.) /vec2(u_aspectRatio, 1.)/HEIGHT*2.;
             vec3 v = -1. * normalize(u_trans_cam * vec3((v_position.x+o.x)*u_aspectRatio, v_position.y+o.y, u_cam_w));//vector from sample point to cam
             #else
             vec3 v = -1. * normalize(u_trans_cam * vec3(v_position.x*u_aspectRatio, v_position.y, u_cam_w));//vector from sample point to cam
+
             #endif
-            float dist = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST);//distance between cam and sample point
+            int marchingN = 0;
+            float dist = shortestDistanceToSurface(u_eye, v, MIN_DIST, MAX_DIST, marchingN);//distance between cam and sample point
 
             if (dist > MAX_DIST-EPSILON){
                 // Didn't hit anything
