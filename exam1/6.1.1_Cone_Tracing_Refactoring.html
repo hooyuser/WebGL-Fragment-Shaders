@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>triangle</title>
+    <title>SDF Ray-marching</title>
     <style>
         body {
-            overflow-y: auto;
+            /*overflow-y: auto;*/
         }
 
         canvas {
@@ -15,12 +15,13 @@
         #container {
             display: grid;
             margin-top: 50px;
-            grid-template-columns: 1fr 910px 1.4fr;
-            grid-template-rows: 120px 600px;
+            grid-template-columns: 1fr 3.9fr 1.4fr;
+            grid-template-rows: 1fr 4fr;
             grid-template-areas: "stat    main control_area"
                                  "hue_bar main control_area";
             justify-items: center;
             align-content: center;
+            column-gap: 4px
         }
 
         .item-1 {
@@ -30,15 +31,19 @@
 
         .item-2 {
             grid-area: hue_bar;
+            align-self: start;
             visibility: hidden;
         }
 
         .item-3 {
             grid-area: main;
+            overflow: auto;
+            max-width: 100%;
         }
 
         .item-4 {
             grid-area: control_area;
+            margin-left: 5px;
         }
 
         #hue_container {
@@ -47,7 +52,10 @@
             grid-template-rows: repeat(5, 1fr);
             grid-template-areas: "top1 hue_image" "top2 hue_image" "top3 hue_image" "top4 hue_image" "top5 hue_image";
             justify-items: end;
-            column-gap: 8px
+            column-gap: 8px;
+            margin-top: 5px;
+            transform: scale(1);
+            transform-origin: top;
         }
 
         .hue-1 {
@@ -64,7 +72,7 @@
         <div id="hue_container">
             <div class="hue-1">
                 <img src="../src/hue.png" width="50"/>
-                <br>
+                <br/>
                 <div style="height: 40px"></div>
             </div>
             <div class="hue-2">256</div>
@@ -79,11 +87,11 @@
     </div>
     <div class="item-4">
         <input type="checkbox" id="animate" checked="checked"> Animate
-        <br><br>
+        <br/><br/>
         <input type="checkbox" id="AA" checked="checked"> Anti-aliasing
-        <br><br>
+        <br/><br/>
         <input type="checkbox" id="stat" checked="checked"> Show Statistics
-        <br><br>
+        <br/><br/>
         <input type="checkbox" id="marchingN"> Show Marching Number
     </div>
 </div>
@@ -597,7 +605,7 @@
         //渲染
 
         //使画布的像素数和显示大小匹配
-        webglUtils.resizeCanvasToDisplaySize(gl.canvas);
+        // webglUtils.resizeCanvasToDisplaySize(gl.canvas);
 
         //设置视口
         gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -683,6 +691,15 @@
         gl.uniform1i(u_CTAA, + doAA);
     }
 
+    function scaleElements(gl) {
+        const canvasScale = 0.6;
+        const aspectRatio = 1.5;
+        canvas.width = Math.round(window.innerWidth * canvasScale);
+        canvas.height = Math.round(canvas.width / aspectRatio);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        document.getElementById("hue_container").style.transform = "scale("+ document.body.clientWidth/window.screen.width +")";
+    }
+
     function main() {
         //判断浏览器是否支持webgl， antialias用于设置抗锯齿，
         let gl = canvas.getContext('webgl', {antialias: false, depth: false});
@@ -690,6 +707,8 @@
             console.log("您的浏览器不支持webgl！");
             return null;
         }
+
+        scaleElements(gl);
 
         let programs = compileShader(gl);
 
@@ -706,7 +725,8 @@
         let uLoc = initialUniform(gl, status);  //绑定Uniform变量
 
         //---------------------------------------------------------------------------------------------------
-
+        
+        initWindowEventHandles();
         initCheckBoxEventHandles();
         initCanvasEventHandles(canvas);
 
@@ -722,16 +742,25 @@
             now *= 0.001;
             let deltaTime = now - then;
             then = now;
-            if (now>1 && status.isAnimated) {
+            if (now > 1 && status.isAnimated) {
                 status.rotZAngle += rotationSpeed * deltaTime;
                 setRotZAngle(gl, uLoc, status);
             }
             gl.drawArrays(gl.TRIANGLES, 0, 6);//画图 primitiveType = gl.TRIANGLES; offset2 = 0; count = 6;
-            stats.end();
+
             requestAnimationFrame(drawScene);
+            stats.end();
         }
 
         requestAnimationFrame(drawScene);
+        
+        function initWindowEventHandles() {
+            window.addEventListener("resize", resizeCanvas, false);
+
+            function resizeCanvas() {
+                scaleElements(gl);
+            }
+        }
 
         function initCheckBoxEventHandles() {
             document.getElementById("animate").onclick = function () {
@@ -750,11 +779,11 @@
 
             document.getElementById("marchingN").onclick = function () {
                 if (this.checked === true) {
-                    status.program = programs.programMarchingN
-                    document.getElementById("hue").style.visibility = "visible"
+                    status.program = programs.programMarchingN;
+                    document.getElementById("hue").style.visibility = "visible";
                 } else {
-                    status.program = programs.programMain
-                    document.getElementById("hue").style.visibility = "hidden"
+                    status.program = programs.programMain;
+                    document.getElementById("hue").style.visibility = "hidden";
                 }
                 createBuffer(gl, status); //为Attribute变量创建buffer
                 uLoc = initialUniform(gl, status);
