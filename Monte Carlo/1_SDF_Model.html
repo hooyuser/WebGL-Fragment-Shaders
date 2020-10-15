@@ -221,7 +221,8 @@
     #define MAX_DIST 50.0// 最远raymarching距离
     #define EPSILON 0.0001// raymarching停止距离
     #define MIN_SHADOW_DIST 0.01
-    #define MAX_SHADOW_DIST 20.0
+    #define MAX_SHADOW_DIST 30.0
+    #define WOS_MARCH_ITERATIONS 80
 
     #define AMBIENT_ALBEDO 0.05
 
@@ -329,14 +330,20 @@
         }
     }
 
+    PointInfo SDF[4];
+
+    float interiorMap(vec3 p){
+        vec3 rp = rotationZ(u_angle) * p;
+        SDF[0] = PointInfo(torusSDF(rp - vec3(-0.5, 0., 0.), vec2(0.4,0.19)), 0);
+        SDF[1] = PointInfo(torusSDF(rp.xzy - vec3(0.5, 0., 0.), vec2(0.4,0.19)), 0);
+        return opSmoothUnion(SDF[0].sd, SDF[1].sd, 0.25);
+    }
+
     PointInfo sceneMap(vec3 p){
         vec3 rp = rotationZ(u_angle) * p;
-        PointInfo SDF[4];
-        SDF[0] = PointInfo(torusSDF(rp - vec3(-1.2, 0., 0.), vec2(1.,0.5)), 0);
-        SDF[1] = PointInfo(torusSDF(rp.xzy - vec3(1.2, 0., 0.), vec2(1.,0.5)), 0);
-        SDF[2] = PointInfo(planeSDF(rp, vec3(0., 1., 0.), 1.2), 1);
-        SDF[3] = PointInfo(planeSDF(p, vec3(0., 0., 1.), 1.7), 1);
-        return opUnion(opDiff(SDF[2],PointInfo(opSmoothUnion(SDF[0].sd, SDF[1].sd, 0.25), 0)),SDF[3]);
+        SDF[2] = PointInfo(planeSDF(rp, vec3(0., 1., 0.), 0.3), 2);
+        SDF[3] = PointInfo(planeSDF(p, vec3(0., 0., 1.), 0.7), 1);
+        return opUnion(opDiff(SDF[2],PointInfo(interiorMap(p), 0)),SDF[3]);
     }
 
     PointInfo shortestDistanceToSurface2(vec3 eye, vec3 v, float start, float end, float coff, out float midDepth, out float minThreshold, out int midN){ //v == -marchingDirection
@@ -406,7 +413,7 @@
         float t = mint;
         float ph = 1e10;// big, such that y = 0 on the first iteration
 
-        for (int i=0; i<32; i++)
+        for (int i=0; i<16; i++)
         {
             float h = sceneMap(ro+rd*t).sd;
             // use this if you are getting artifact on the first iteration, or unroll the
@@ -422,26 +429,136 @@
         return res;
     }
 
-    float f(vec3 pos) {
-        return fract(pos.x * 1.66 + 0.25) > 0.5 ? 1.0 : 0.0;
+    float stripe(vec3 pos) {
+        return fract(pos.x * 4.66 + 0.25) > 0.5 ? 1.0 : 0.0;
     }
 
-    vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, int mID){
+    const int BIT_COUNT = 8;
+
+    int modi(int x, int y) {
+        return x - y * (x / y);
+    }
+
+    int and(int a, int b) {
+        int result = 0;
+        int n = 1;
+
+        for(int i = 0; i < BIT_COUNT; i++) {
+            if ((modi(a, 2) == 1) && (modi(b, 2) == 1)) {
+                result += n;
+            }
+
+            a = a / 2;
+            b = b / 2;
+            n = n * 2;
+
+            if(!(a > 0 && b > 0)) {
+                break;
+            }
+        }
+        return result;
+    }
+
+//    int  seed = 1;
+//    void srand(int s ) {
+//        seed = s;
+//    }
+//    int rand(void) {
+//        seed = seed * 214013 + 2531011;
+//        return and(int(seed /65536), 32767);
+//    }
+
+
+    float hash( float n )
+    {
+        return fract(sin(n)*43758.5453);
+    }
+
+    float seed = 1.;
+    float noise(vec2 co){
+        seed = hash(seed);
+        return fract(sin(seed * dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+    }
+
+//    vec3 randomOnSphere(vec2 screen) {
+//        float ran = noise(screen);
+//        float cTheta = 1. - 2.* ran;
+//        float sTheta = sqrt(1.-cTheta*cTheta);
+//        float phi = 2.*PI*noise(screen);
+//        return normalize(vec3(sTheta*cos(phi),sTheta*sin(phi),cos(phi)));
+//    }
+
+    vec3 randomOnSphere(vec2 screen) {
+        float theta = (6.283185 ) * noise(screen);
+        float u = (2.0 ) * noise(screen) - 1.0;
+        return vec3(sqrt(max(0.0, 1.0 - u * u)) * vec2(cos(theta), sin(theta)), u);
+    }
+
+//    vec3 randomOnSphere() {
+//        float theta = (6.283185 / 32767.0) * float(rand());
+//        float u = (2.0 / 32767.0) * float(rand()) - 1.0;
+//        return vec3(sqrt(max(0.0, 1.0 - u * u)) * vec2(cos(theta), sin(theta)), u);
+//    }
+
+
+    vec3 march (vec3 p, vec2 screen, out int ii) { //Walk-on-spheres
+        float h;
+        vec3 pt=p;
+
+        for (int i = 0; i <36; i++) {
+            ii =i;
+            h = -interiorMap(pt);
+            if (h < 0.001) return pt;
+            pt = pt + h * randomOnSphere(screen);
+        }
+        ii = -1;
+        return vec3(0.);
+    }
+
+    const vec3 color1 = vec3(1.0, 1.0, 0.28);
+    const vec3 color2 = vec3(0.03, 0.02, 0.2);
+    vec3 hsvColorscale (float x) {
+        vec3 c1 = rgb2hsv(1.0 - color1);
+        vec3 c2 = rgb2hsv(1.0 - color2);
+        return 1.0 - hsv2rgb(mix(c1, c2, x));
+    }
+
+    vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, int mID, vec2 screen){
 
         vec3 baseColor;
         float metalness, roughness, specular;
-        if (mID == 0)
-        {
-            baseColor = mix(u_baseColor[0],vec3(1.),f(p));
+        if (mID == 0){
+            baseColor = mix(u_baseColor[0],vec3(1.),stripe(p));
             metalness = u_metalness[0];
             roughness = u_roughness[0];
             specular = u_specular[0];
         }
-        else {
+        else if(mID == 1){
             baseColor = u_baseColor[1];
             metalness = u_metalness[1];
             roughness = u_roughness[1];
             specular = u_specular[1];
+        }
+        else{
+            float sum = 0.0;
+            int sumN = 24;
+            for (int i = 0; i <35; i++) {
+                int ii = 0;
+                sum += stripe(march(p,screen,ii));
+                if (ii == -1){
+                    sumN--;
+                }
+            }
+            if (sumN > 0)
+                sum /= float(sumN);
+//            sum /= float(WOS_MARCH_ITERATIONS);
+//            sum=clamp(-5.*interiorMap(p),0.,1.);
+//            baseColor = hsvColorscale(fract(-interiorMap(p) * 30.0));
+            baseColor = hsvColorscale(sum);
+//            baseColor = fract(10.*randomOnSphere(screen,4));  //show noise pattern
+            metalness = u_metalness[0];
+            roughness = u_roughness[0];
+            specular = u_specular[0];
         }
 
         float falloffLength = dot(light.pos - p, light.pos - p);
@@ -487,20 +604,23 @@
         }
     }
 
-    vec3 sceneRender(vec3 p, vec3 v, vec3 n, int mID){
+    vec3 sceneRender(vec3 p, vec3 v, vec3 n, int mID, vec2 screen){
         vec3 color = vec3(AMBIENT_ALBEDO);
         for (int i = 0; i < NB_LIGHTS; ++i) {
-            color += objectPBRLighting (lights[i], p, v, n, mID);
+            color += objectPBRLighting (lights[i], p, v, n, mID, screen);
         }
         return color;
     }
 
     void main(){
+
+//        srand(int(1000000000.*hash(v_position.x + hash(v_position.y))));
+
         vec3 color = vec3(0.);
         vec3 total = vec3(0.0);
 
-        lights[0] = Light(vec3(-2.0, -4.0, 5.0), vec3(1.0));
-        lights[1] = Light(vec3(5.0, -2.0, 10.0), vec3(2.0));
+        lights[0] = Light(vec3(-2.0, -4.0, 5.0)/1.5, vec3(1.0));
+        lights[1] = Light(vec3(5.0, -2.0, 4.0)/1.5, vec3(1.0));
 
         #if AA > 1
         for (int m=0; m<AA; m++)
@@ -538,12 +658,12 @@
             else {
                 vec3 p = u_eye - distMID.sd * v;// position of sample point
                 vec3 n = calcNormal(p);//normal vector at the sample point
-                color = sceneRender(p, v, n, distMID.materialID);
+                color = sceneRender(p, v, n, distMID.materialID,vec2(screenX,screenY));
             }
             if (u_CTAA==1 && midDepth>-1.){
                 vec3 pM = u_eye - midDepth * v;// position of sample point
                 vec3 nM = calcNormal(pM);
-                vec3 colorM = sceneRender(pM, v, nM, sceneMap(pM).materialID);
+                vec3 colorM = sceneRender(pM, v, nM, sceneMap(pM).materialID,vec2(screenX,screenY));
 
                 color = mix(colorM, color, clamp(minThreshold/2., 0., 1.));
                 float ratio = float(midN)/float(MAX_MARCHING_STEPS);
@@ -718,7 +838,7 @@
     }
 
     function createBuffer(gl, {program}) {
-        //创建缓冲区
+        //创建缓冲区对象
         let buffer_id = gl.createBuffer();
 
         //将它绑定到ARRAY_BUFFER（将其视为ARRAY_BUFFER = buffer_id）
@@ -765,6 +885,24 @@
 
         //从缓冲区取出数据
         gl.vertexAttribPointer(a_position_location, size, type, normalize, stride, offset1);
+    }
+
+    function initialFrameBuffer(gl) {
+
+        let texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+        let fb = gl.createFramebuffer();//创建一个Framebuffer
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);//将fb绑定为目前的窗口
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);//使用该方法将texture的颜色值与FBO进行绑定
+
+        //store corresponding texture and fb
+        textures.push(texture);
+        FBOs.push(fb);
     }
 
     function initialUniform(gl, status) {
