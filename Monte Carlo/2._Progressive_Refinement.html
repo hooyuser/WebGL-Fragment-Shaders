@@ -206,7 +206,7 @@
     }
 </script>
 
-<script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+<script id="fragment-shader-frame-buffer" type="x-shader/x-fragment">#version 300 es
     precision highp float;
 
     // 常量定义
@@ -627,6 +627,21 @@
     }
 </script>
 
+<script id="fragment-shader-screen" type="x-shader/x-fragment">#version 300 es
+    precision highp float;
+
+
+    uniform sampler2D samplerFB;
+    in vec2 v_position;
+    out vec4 outputColor;
+
+    void main(){
+        vec4 data = texture(samplerFB, v_position);
+        outputColor = vec4(pow(data.xyz / data.w, vec3(0.4545)), 1.0);
+    }
+</script>
+
+
 <script id="fragment-shader-marchingN" type="x-shader/x-fragment">#version 300 es
     precision highp float;
 
@@ -775,7 +790,8 @@
 
     function compileShader(gl) {  //创建着色器
         const vShaderSource = document.getElementById('vertex-shader').text;
-        const fShaderSource = document.getElementById('fragment-shader').text;
+        const fShaderSource = document.getElementById('fragment-shader-frame-buffer').text;
+        const fShaderScreenSource = document.getElementById('fragment-shader-screen').text;
         const fShaderMarchingNSource = document.getElementById('fragment-shader-marchingN').text;
         // import vShaderSource from '../lib/shader/draw_2d/draw_2d_vert.js';
         // import fShaderSource from '../lib/shader/draw_2d/draw_2d_frag.js';
@@ -783,6 +799,7 @@
         //编译和链接着色器
         return {
             programMain: initShader(gl, vShaderSource, fShaderSource),
+            programScreen: initShader(gl, vShaderSource, fShaderScreenSource),
             programMarchingN: initShader(gl, vShaderSource, fShaderMarchingNSource)
         };
     }
@@ -837,22 +854,20 @@
         gl.vertexAttribPointer(a_position_location, size, type, normalize, stride, offset1);
     }
 
-    function initialFrameBuffer(gl) {
+    function initialFrameBuffer(gl,status) {
 
-        let texture = gl.createTexture();
+        status.texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-        let fb = gl.createFramebuffer();//创建一个Framebuffer
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);//将fb绑定为目前的窗口
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);//使用该方法将texture的颜色值与FBO进行绑定
 
-        //store corresponding texture and fb
-        textures.push(texture);
-        FBOs.push(fb);
+
+        status.frameBuffer = gl.createFramebuffer();//创建一个Framebuffer
+        gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffer);//将fb绑定为目前的窗口
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, status.texture, 0);//使用该方法将texture的颜色值与FBO进行绑定
     }
 
     function initialUniform(gl, status) {
@@ -974,6 +989,7 @@
 
         createBuffer(gl, status);  //为Attribute变量创建buffer
         let uLoc = initialUniform(gl, status);  //绑定Uniform变量
+        initialFrameBuffer(gl);
 
         //---------------------------------------------------------------------------------------------------
 
@@ -997,7 +1013,27 @@
                 status.rotZAngle += rotationSpeed * deltaTime;
                 setRotZAngle(gl, uLoc, status);
             }
+
+            status.program = programs.programMain;
+            gl.useProgram(programs.programMain);
+
+            createBuffer(gl, status); //为Attribute变量创建buffer
+            uLoc = initialUniform(gl, status);
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffer);
+
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, status.texture, 0);
+
             gl.drawArrays(gl.TRIANGLES, 0, 6);//画图 primitiveType = gl.TRIANGLES; offset2 = 0; count = 6;
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+            status.program = programs.programScreen
+            gl.useProgram(status.program);//指定使用某套着色器程序
+
+            createBuffer(gl, status); //为Attribute变量创建buffer
+
+            let loc = gl.getUniformLocation(programs.programMain, 'samplerDB');
 
             requestAnimationFrame(drawScene);
             stats.end();
