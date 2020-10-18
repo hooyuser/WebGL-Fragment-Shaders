@@ -153,7 +153,7 @@
         <br/><br/>
         <b>Material</b>
         <br/><br/>
-        <div> Base Color &ensp;&ensp;<input type="color" id="colorPicker" value="#48D1CC"/></div>
+            <div> Base Color &ensp;&ensp;<input type="color" id="colorPicker" value="#FFFF48"/></div>
         <br/>
         <div id="slider_container">
             <div class="slider-text-1"> Roughness </div>
@@ -233,7 +233,7 @@
     uniform int u_specularPassOn;
     uniform int u_shadowPassOn;
     uniform mat3 u_trans_cam;
-    uniform float u_angle;
+    uniform float u_rotZAngle;
     uniform float u_aspectRatio;
     uniform float u_cam_w;
     uniform vec3 u_eye;
@@ -332,14 +332,14 @@
     PointInfo SDF[4];
 
     float interiorMap(vec3 p){
-        vec3 rp = rotationZ(u_angle) * p;
+        vec3 rp = rotationZ(u_rotZAngle) * p;
         SDF[0] = PointInfo(torusSDF(rp - vec3(-0.5, 0., 0.), vec2(0.4,0.19)), 0);
         SDF[1] = PointInfo(torusSDF(rp.xzy - vec3(0.5, 0., 0.), vec2(0.4,0.19)), 0);
         return opSmoothUnion(SDF[0].sd, SDF[1].sd, 0.25);
     }
 
     PointInfo sceneMap(vec3 p){
-        vec3 rp = rotationZ(u_angle) * p;
+        vec3 rp = rotationZ(u_rotZAngle) * p;
         SDF[2] = PointInfo(planeSDF(rp, vec3(0., 1., 0.), 0.3), 2);
         SDF[3] = PointInfo(planeSDF(p, vec3(0., 0., 1.), 0.7), 1);
         return opUnion(opDiff(SDF[2],PointInfo(interiorMap(p), 0)),SDF[3]);
@@ -412,7 +412,7 @@
         float t = mint;
         float ph = 1e10;// big, such that y = 0 on the first iteration
 
-        for (int i=0; i<16; i++)
+        for (int i=0; i<32; i++)
         {
             float h = sceneMap(ro+rd*t).sd;
             // use this if you are getting artifact on the first iteration, or unroll the
@@ -476,9 +476,9 @@
         return vec3(0.);
     }
 
-    const vec3 color1 = vec3(1.0, 1.0, 0.28);
+//    const vec3 color1 = vec3(1.0, 1.0, 0.282352941);
     const vec3 color2 = vec3(0.03, 0.02, 0.2);
-    vec3 hsvColorscale (float x) {
+    vec3 hsvColorscale (vec3 color1, vec3 color2, float x) {
         vec3 c1 = rgb2hsv(1.0 - color1);
         vec3 c2 = rgb2hsv(1.0 - color2);
         return 1.0 - hsv2rgb(mix(c1, c2, x));
@@ -488,8 +488,10 @@
 
         vec3 baseColor;
         float metalness, roughness, specular;
+        float shadowPass = 1.;
+
         if (mID == 0){
-            baseColor = mix(u_baseColor[0],vec3(1.),stripe(p));
+            baseColor = mix(u_baseColor[0],color2,stripe(p));
             metalness = u_metalness[0];
             roughness = u_roughness[0];
             specular = u_specular[0];
@@ -502,7 +504,7 @@
         }
         else{
             float sum = 0.0;
-            int sumN = 16;
+            int sumN = 24;
             for (int i = 0; i <sumN; i++) {
                 int ii = 0;
                 sum += stripe(march(p,screen,ii));
@@ -517,7 +519,7 @@
 //            baseColor = hsvColorscale(fract(-interiorMap(p) * 30.0));
 //            return hsvColorscale(sum);
 //            baseColor = fract(10.*randomOnSphere(screen,4));  //show noise pattern
-            baseColor = hsvColorscale(sum);
+            baseColor = hsvColorscale(u_baseColor[0], vec3(0.03, 0.02, 0.2), sum);
             metalness = u_metalness[0];
             roughness = u_roughness[0];
             specular = u_specular[0];
@@ -545,7 +547,10 @@
 //        vec3 f = kD * fDiffuse + fSpecular;
 //        vec3 f = kD * baseColor / PI + F * D * Vis;
 //        vec3 c = PI * f * light.color * dotNL * 17. / falloffLength;
-        float shadowPass = calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
+        if(mID <= 1){
+            shadowPass = calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
+        }
+
         vec3 color = vec3(1.);
         vec3 f = vec3(0.);
 
@@ -581,7 +586,7 @@
         vec3 color = vec3(0.);
 
         lights[0] = Light(vec3(-2.0, -4.0, 7.0)/1.5, vec3(1.0));
-        lights[1] = Light(vec3(5.0, -2.0, 6.0)/1.5, vec3(1.0));
+        lights[1] = Light(vec3(5.0, 2.0, 6.0)/1.5, vec3(1.0));
 
         vec2 o = (vec2(float(rand()), float(rand())) / 32767.0 - 0.5)/HEIGHT*2.;
         float screenX = (v_position.x+o.x)*u_aspectRatio;
@@ -651,7 +656,7 @@
     #define UPPER 0.9999
 
     uniform mat3 u_trans_cam;
-    uniform float u_angle;
+    uniform float u_rotZAngle;
     uniform float u_aspectRatio;
     uniform float u_cam_w;
     uniform vec3 u_eye;
@@ -694,7 +699,7 @@
     float opUnion(float d1, float d2) { return min(d1, d2); }
 
     float sceneMap(vec3 p){
-        return opUnion(opSmoothIntersection(boxSDF(rotationZ(u_angle)*p, vec3(1.)), sphereSDF(rotationZ(u_angle)*p, 1.2), 0.02), planeSDF(p, vec3(0., 0., 1.), 1.2));
+        return opUnion(opSmoothIntersection(boxSDF(rotationZ(u_rotZAngle)*p, vec3(1.)), sphereSDF(rotationZ(u_rotZAngle)*p, 1.2), 0.02), planeSDF(p, vec3(0., 0., 1.), 1.2));
     }
 
     float shortestDistanceToSurface(vec3 eye, vec3 v, float start, float end, out int marchingN){ //v == -marchingDirection
@@ -869,14 +874,6 @@
                 console.log('Frame buffer object is incomplete: ' + e.toString());
             }
         }
-
-
-
-        // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-        //
-
-        //gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffer);//将fb绑定为目前的窗口
-        //gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, status.texture, 0);//使用该方法将texture的颜色值与FBO进行绑定
     }
 
     function initialUniform(gl, status) {
@@ -891,7 +888,7 @@
             u_specular: gl.getUniformLocation(program, 'u_specular'),
             u_trans_cam: gl.getUniformLocation(program, 'u_trans_cam'),
             u_eye: gl.getUniformLocation(program, 'u_eye'),
-            u_angle: gl.getUniformLocation(program, 'u_angle'),
+            u_rotZAngle: gl.getUniformLocation(program, 'u_rotZAngle'),
             u_diffusePassOn: gl.getUniformLocation(program, 'u_diffusePassOn'),
             u_specularPassOn: gl.getUniformLocation(program, 'u_specularPassOn'),
             u_shadowPassOn: gl.getUniformLocation(program, 'u_shadowPassOn'),
@@ -934,8 +931,8 @@
         gl.uniform3fv(u_eye, camera);
     }
 
-    function setRotZAngle(gl, {u_angle}, {rotZAngle}) {
-        gl.uniform1f(u_angle, rotZAngle);
+    function setRotZAngle(gl, {u_rotZAngle}, {rotZAngle}) {
+        gl.uniform1f(u_rotZAngle, rotZAngle);
     }
 
     function setDiffusePass(gl, {u_diffusePassOn}, {diffusePassOn}) {
@@ -990,7 +987,7 @@
             diffusePassOn: true,
             specularPassOn: true,
             shadowPassOn: true,
-            baseColor: [[72 / 255, 209 / 255, 204 / 255], [108 / 255, 63 / 255, 175 / 255]],
+            baseColor: [[255 / 255, 255 / 255, 72 / 255], [108 / 255, 63 / 255, 175 / 255]],
             roughness: [0.3, 0.4],
             metalness: [0.0, 0.0],
             specular: [0.5, 0.5],
@@ -1018,6 +1015,21 @@
                 ++this.drawN ;
                 gl.useProgram(programs.programFB);
                 gl.uniform1i(uLoc.u_drawN, this.drawN);
+                gl.useProgram(this.program);
+            },
+
+            updateUniformVec3: function (name, value) {
+                gl.useProgram(programs.programFB);
+                this[name] = value || this[name];
+                gl.uniform3fv(uLoc["u_" + name], new Float32Array(this[name].flat()));
+                gl.useProgram(this.program);
+            },
+
+            updateUniformFloat: function (name, value) {
+                gl.useProgram(programs.programFB);
+                this[name] = value || this[name];
+                let input = typeof (this[name]) === "number" ? [this[name]] : this[name];
+                gl.uniform1fv(uLoc["u_" + name], new Float32Array(input));
                 gl.useProgram(this.program);
             }
         };
@@ -1056,20 +1068,18 @@
             then = now;
             if (now > 1 && status.isAnimated) {
                 status.rotZAngle += rotationSpeed * deltaTime;
-                setRotZAngle(gl, uLoc, status);
+                status.updateUniformFloat("rotZAngle");
+                console.log(status.rotZAngle);
             }
 
 
-            console.log(status.drawN);
 
             // Draw on the framebuffer
             status.program = programs.programFB;
             gl.useProgram(programs.programFB);
-            FBsamplerFBLoc = gl.getUniformLocation(programs.programFB, 'samplerFB');
 
             createBuffer(gl, status); //为Attribute变量创建buffer
             setCam(gl, uLoc, status);
-            // gl.uniform1i(uLoc.u_drawN, status.drawN);
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffers[n]); //将frameBuffers[n]绑定为目前的窗口
             gl.viewport(0, 0, canvas.width, canvas.height);
@@ -1086,7 +1096,6 @@
             //draw on the screen
             status.program = programs.programScreen
             gl.useProgram(status.program);//指定使用某套着色器程序
-            screenSamplerFBLoc = gl.getUniformLocation(programs.programScreen, 'samplerFB');
 
             createBuffer(gl, status); //为Attribute变量创建buffer
 
@@ -1097,7 +1106,9 @@
             gl.drawArrays(gl.TRIANGLES, 0, 6);//画图 primitiveType = gl.TRIANGLES; offset2 = 0; count = 6;
 
             n = 1 - n;
-            status.incrementDrawN();
+            if (!status.isAnimated) {
+                status.incrementDrawN();
+            }
 
 
             requestAnimationFrame(drawScene);
@@ -1117,7 +1128,8 @@
 
         function initControlAreaEventHandles() {
             document.getElementById("animate").onclick = function () {
-                status.isAnimated = !status.isAnimated;
+                status.toggleBool("isAnimated");
+                status.redraw();
             }
 
             document.getElementById("diffuse").onclick = function () {
@@ -1154,8 +1166,8 @@
 
             $("#colorPicker").on("input", function () {
                 status.baseColor[0] = hexToRgb($(this).val()).map(x => x / 255);
-                console.log(status.baseColor[0]);
-                setBaseColor(gl, uLoc, status);
+                status.updateUniformVec3("baseColor");
+                status.redraw();
             });
 
 
@@ -1165,7 +1177,8 @@
                     $(elementID).val(this.value);
                     let materialName = elementID.slice(2).toLowerCase()
                     status[materialName][0] = this.value;
-                    status.setMaterial(materialName)();
+                    status.updateUniformFloat(materialName);
+                    status.redraw();
                 }
             }
 
