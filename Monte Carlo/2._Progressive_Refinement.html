@@ -29,7 +29,6 @@
 
         .item-1 {
             grid-area: stat;
-            /*justify-self: center;*/
         }
 
         .item-2 {
@@ -68,7 +67,6 @@
 
         .slider-text-1 {
             grid-area: rtext;
-            /*justify-self: center;*/
         }
 
         .slider-text-2 {
@@ -189,7 +187,7 @@
 <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
 precision highp float;
 
-uniform float u_aspectRatio;
+//uniform float u_aspectRatio;
 in vec2 a_position;
 out vec2 v_position;
 
@@ -236,6 +234,7 @@ uniform vec3 u_baseColor[MATERIAL_N];
 uniform float u_metalness[MATERIAL_N];
 uniform float u_roughness[MATERIAL_N];
 uniform float u_specular[MATERIAL_N];
+uniform float u_widthHeight[2];
 uniform float u_cuttingPlane;
 uniform sampler2D samplerFB;
 in vec2 v_position;
@@ -577,15 +576,15 @@ vec3 sceneRender(vec3 p, vec3 v, vec3 n, int mID, vec2 screen){
 
 void main(){
 
-    srand(hash(int(900.*v_position.x) + hash(int(600.*v_position.y) + u_drawN)));
+    srand(hash(int(u_widthHeight[0]*v_position.x) + hash(int(u_widthHeight[1]*v_position.y) + u_drawN)));
 
     vec3 color = vec3(0.);
 
     lights[0] = Light(vec3(-2.0, -4.0, 4.0)/1.4, vec3(1.0));
     lights[1] = Light(vec3(5.0, 2.0, 6.0)/1.7, vec3(1.0));
 
-    vec2 o = (vec2(float(rand()), float(rand())) / 32767.0 - 0.5)/HEIGHT*2.;
-    float screenX = (v_position.x+o.x)*u_aspectRatio;
+    vec2 o = (vec2(float(rand()), float(rand())) / 32767.0 - 0.5)/u_widthHeight[1]*2.;
+    float screenX = (v_position.x+o.x)*u_widthHeight[0]/u_widthHeight[1];
     float screenY = v_position.y+o.y;
     vec3 v = -1. * normalize(u_trans_cam * vec3(screenX, screenY, u_cam_w));//vector from sample point to cam
 
@@ -755,7 +754,7 @@ void main(){
 
         let program = status.program;
         let uLoc = { //register uniform variables
-            u_aspectRatio: gl.getUniformLocation(program, 'u_aspectRatio'),
+            //u_aspectRatio: gl.getUniformLocation(program, 'u_aspectRatio'),
             u_cam_w: gl.getUniformLocation(program, 'u_cam_w'),
             u_baseColor: gl.getUniformLocation(program, 'u_baseColor'),
             u_metalness: gl.getUniformLocation(program, 'u_metalness'),
@@ -768,7 +767,8 @@ void main(){
             u_specularPassOn: gl.getUniformLocation(program, 'u_specularPassOn'),
             u_shadowPassOn: gl.getUniformLocation(program, 'u_shadowPassOn'),
             u_drawN: gl.getUniformLocation(program, 'u_drawN'),
-            u_cuttingPlane: gl.getUniformLocation(program, 'u_cuttingPlane')
+            u_cuttingPlane: gl.getUniformLocation(program, 'u_cuttingPlane'),
+            u_widthHeight: gl.getUniformLocation(program, 'u_widthHeight')
         };
 
         status.setMaterial = function (materialName) {
@@ -790,8 +790,9 @@ void main(){
         setBaseColor(gl, uLoc, status);
         setCuttingPlane(gl, uLoc, status);
 
-        let aspectRatio = canvas.width / canvas.height;
-        gl.uniform1f(uLoc.u_aspectRatio, aspectRatio);
+        let aspectRatio = gl.canvas.width / gl.canvas.height;
+        //gl.uniform1f(uLoc.u_aspectRatio, aspectRatio);
+        gl.uniform1fv(uLoc.u_widthHeight, new Float32Array([gl.canvas.width, gl.canvas.height]));
 
         const fieldOfView = 30.0;
         let cam_w = aspectRatio / 2. / Math.tan(fieldOfView / 360. * Math.PI);
@@ -837,7 +838,7 @@ void main(){
         const aspectRatio = 1.5;
         canvas.width = Math.round(window.innerWidth * canvasScale);
         canvas.height = Math.round(canvas.width / aspectRatio);
-        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
         document.getElementById("hue_container").style.transform = "scale(" + document.body.clientWidth / window.screen.width + ")";
     }
 
@@ -890,6 +891,16 @@ void main(){
                 this.drawN = 0;
                 gl.useProgram(programs.programFB);
                 gl.uniform1i(uLoc.u_drawN, 0);
+                // gl.activeTexture(gl.TEXTURE0);
+                // let w = canvas.width;
+                // let h = canvas.height
+                // gl.texImage2D(
+                //     gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0,
+                //     gl.RGBA, gl.FLOAT, null);
+                // gl.activeTexture(gl.TEXTURE0 + 1);
+                // gl.texImage2D(
+                //     gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0,
+                //     gl.RGBA, gl.FLOAT, null);
                 gl.useProgram(this.program);
             },
 
@@ -938,8 +949,8 @@ void main(){
         document.getElementById("stats").appendChild(stats.dom);
 
         let then = 0;
+        let texture_idx = 0;
         const rotationSpeed = 30 * Math.PI / 180.;
-        let n = 0;
         let FBsamplerFBLoc = gl.getUniformLocation(programs.programFB, 'samplerFB');
         let screenSamplerFBLoc = gl.getUniformLocation(programs.programScreen, 'samplerFB');
 
@@ -958,7 +969,6 @@ void main(){
             if (now > 1 && status.isAnimated) {
                 status.rotZAngle += rotationSpeed * deltaTime;
                 status.updateUniformFloatArray("rotZAngle");
-                console.log(status.rotZAngle);
             }
 
 
@@ -969,16 +979,17 @@ void main(){
             createBuffer(gl, status); //为Attribute变量创建buffer
             setCam(gl, uLoc, status);
 
-            gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffers[n]); //将frameBuffers[n]绑定为目前的窗口
-            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, status.frameBuffers[texture_idx]); //将frameBuffers[n]绑定为目前的窗口
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-            gl.activeTexture(gl.TEXTURE0 + 1 - n);  //activate a texture unit
-            gl.bindTexture(gl.TEXTURE_2D, status.textures[1 - n]);  //bind texture object to the activated texture unit
-            gl.uniform1i(FBsamplerFBLoc, 1 - n);  //upload the data in the texture unit to the sampler2D variable in the shader program
+            gl.activeTexture(gl.TEXTURE0 + 1 - texture_idx);  //activate a texture unit
+            gl.bindTexture(gl.TEXTURE_2D, status.textures[1 - texture_idx]);  //bind texture object to the activated texture unit
+            gl.uniform1i(FBsamplerFBLoc, 1 - texture_idx);  //upload the data in the texture unit to the sampler2D variable in the shader program
 
             gl.drawArrays(gl.TRIANGLES, 0, 6);//画图 primitiveType = gl.TRIANGLES; offset2 = 0; count = 6;
 
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
             gl.bindTexture(gl.TEXTURE_2D, null);
 
             //draw on the screen
@@ -987,13 +998,13 @@ void main(){
 
             createBuffer(gl, status); //为Attribute变量创建buffer
 
-            gl.activeTexture(gl.TEXTURE0 + n);
-            gl.bindTexture(gl.TEXTURE_2D, status.textures[n]);
-            gl.uniform1i(screenSamplerFBLoc, n);
+            gl.activeTexture(gl.TEXTURE0 + texture_idx);
+            gl.bindTexture(gl.TEXTURE_2D, status.textures[texture_idx]);
+            gl.uniform1i(screenSamplerFBLoc, texture_idx);
 
             gl.drawArrays(gl.TRIANGLES, 0, 6);//画图 primitiveType = gl.TRIANGLES; offset2 = 0; count = 6;
 
-            n = 1 - n;
+            texture_idx = 1 - texture_idx;
             if (!status.isAnimated) {
                 status.incrementDrawN();
             }
@@ -1011,6 +1022,22 @@ void main(){
 
             function resizeCanvas() {
                 scaleElements(gl);
+                gl.useProgram(programs.programFB);
+                gl.uniform1fv(uLoc["u_widthHeight"], new Float32Array([gl.canvas.width, gl.canvas.height]));
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, status.textures[0]);
+                gl.texImage2D(
+                    gl.TEXTURE_2D, 0, gl.RGBA32F, canvas.width, canvas.height, 0,
+                    gl.RGBA, gl.FLOAT, null);
+                gl.activeTexture(gl.TEXTURE0 + 1);
+                gl.bindTexture(gl.TEXTURE_2D, status.textures[1]);
+                gl.texImage2D(
+                    gl.TEXTURE_2D, 0, gl.RGBA32F, canvas.width, canvas.height, 0,
+                    gl.RGBA, gl.FLOAT, null);
+                gl.useProgram(status.program);
+                console.log(gl.canvas.width, gl.canvas.height);
+
+                status.redraw();
             }
         }
 
