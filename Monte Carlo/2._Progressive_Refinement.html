@@ -202,7 +202,7 @@ precision highp float;
 
 // 常量定义
 
-#define HEIGHT 600.
+//#define HEIGHT 600.
 #define NB_LIGHTS 2
 #define MATERIAL_N 2
 
@@ -211,7 +211,7 @@ precision highp float;
 #define MAX_DIST 50.0// 最远raymarching距离
 #define EPSILON 0.0001// raymarching停止距离
 #define MIN_SHADOW_DIST 0.01
-#define MAX_SHADOW_DIST 30.0
+#define MAX_SHADOW_DIST 3.0
 #define WOS_MARCH_ITERATIONS 80
 
 #define AMBIENT_ALBEDO 0.05
@@ -401,27 +401,85 @@ vec3 calcNormal(vec3  p) { // for function f(p)
     k.xxx*sceneMap(p + k.xxx*h).sd);
 }
 
-float calcSoftshadow(vec3 ro, vec3 rd, float mint, float tmax)
+
+//const float maxHei = 4.7;
+//float calcSoftshadow(vec3 ro, vec3 rd, float mint, float tmax)
+//{
+//    float tp = (maxHei - ro.y) / rd.y;
+//    if (tp > 0.0) tmax = min(tmax, tp);
+//    float res = 1.0;
+//    float t = mint;
+//    float ph = 1e10;// big, such that y = 0 on the first iteration
+//
+////    for (int i=0; i<128; i++)
+////    {
+////        float h = sceneMap(ro+rd*t).sd;
+////        // use this if you are getting artifact on the first iteration, or unroll the
+////        // first iteration out of the loop
+////        float y = (i==0) ? 0.0 : h*h/(2.0*ph);
+////        //            float y = h*h/(2.0*ph);
+////        float d = sqrt(h*h-y*y);
+////        res = min(res, 10.0*d/max(EPS, t-y));
+////        ph = h;
+////        t += h;
+////        if (res<0.0001 || t>tmax) break;
+////    }
+////    return res;
+//    for (int i=0; i < 128; i++) {
+//        float h = sceneMap(ro+rd*t).sd;
+//        float s = clamp(4.0 * h / t, 0.0, 1.0);
+//        res = min(res, s * s * (3.0 - 2.0 * s));
+//        t += clamp( h, 0.02, 0.10 );
+//        if (res < 0.005 || t > tmax) break;
+//    }
+//    return clamp(res, 0.0, 1.0 );
+//}
+
+//const float maxHei = 4.7;
+float calcSoftshadow( in vec3 ro, in vec3 rd, in float mint, in float tmax)
 {
     float res = 1.0;
     float t = mint;
-    float ph = 1e10;// big, such that y = 0 on the first iteration
+    float ph = 1e20; // big, such that y = 0 on the first iteration
 
-    for (int i=0; i<32; i++)
+    for( int i=0; i<32; i++ )
     {
         float h = sceneMap(ro+rd*t).sd;
-        // use this if you are getting artifact on the first iteration, or unroll the
-        // first iteration out of the loop
-        float y = (i==0) ? 0.0 : h*h/(2.0*ph);
-        //            float y = h*h/(2.0*ph);
+
+            // use this if you are getting artifact on the first iteration, or unroll the
+            // first iteration out of the loop
+            //float y = (i==0) ? 0.0 : h*h/(2.0*ph);
+
+        float y = h*h/(ph+ph);
         float d = sqrt(h*h-y*y);
-        res = min(res, 10.0*d/max(EPS, t-y));
+        res = min( res, 10.0*d/max(0.0,t-y) );
         ph = h;
         t += h;
-        if (res<0.0001 || t>tmax) break;
+
+        if( res<0.0001 || t>tmax ) break;
+
     }
-    return res;
+    return clamp( res, 0.0, 1.0 );
 }
+
+
+const float sunsize = .09250245*0.78;
+float getSofterShadows(vec3 ro, vec3 rd){
+    float d =0.02;
+    float k=tan(sunsize);
+    float r =1.;
+    for(int i =0;i<1000;i++){
+        float h =sceneMap(ro+d*rd).sd +((d*k));//the magic happens here
+        if(h<.01)
+        return 0.;
+        r=min(r,h/(max(0.,d)*(k+k)));
+        d+=h*inversesqrt(d+1.);
+        if(d>10.)
+        break;
+    }
+    return r;
+}
+
 
 float stripe(vec3 pos) {
     return fract(pos.x * 4.66 + 0.25) > 0.5 ? 1.0 : 0.0;
@@ -543,8 +601,10 @@ vec3 objectPBRLighting (Light light, vec3 p, vec3 v, vec3 n, int mID, vec2 scree
     //        vec3 f = kD * baseColor / PI + F * D * Vis;
     //        vec3 c = PI * f * light.color * dotNL * 17. / falloffLength;
     if (mID <= 1){
-        shadowPass = calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
+        shadowPass = getSofterShadows(p, l);
+        //shadowPass = calcSoftshadow(p, l, MIN_SHADOW_DIST, MAX_SHADOW_DIST);
     }
+    shadowPass = getSofterShadows(p, l);
 
     vec3 color = vec3(1.);
     vec3 f = vec3(0.);
@@ -891,16 +951,6 @@ void main(){
                 this.drawN = 0;
                 gl.useProgram(programs.programFB);
                 gl.uniform1i(uLoc.u_drawN, 0);
-                // gl.activeTexture(gl.TEXTURE0);
-                // let w = canvas.width;
-                // let h = canvas.height
-                // gl.texImage2D(
-                //     gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0,
-                //     gl.RGBA, gl.FLOAT, null);
-                // gl.activeTexture(gl.TEXTURE0 + 1);
-                // gl.texImage2D(
-                //     gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0,
-                //     gl.RGBA, gl.FLOAT, null);
                 gl.useProgram(this.program);
             },
 

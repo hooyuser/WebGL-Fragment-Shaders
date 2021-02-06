@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wonanut 3D</title>
+    <style type="text/css">
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+<script src="https://cdn.bootcdn.net/ajax/libs/three.js/r122/three.min.js"></script>
+<script src="../lib/GLTFLoader.js"></script>
+<script src="../lib/OrbitControls.js"></script>
+<script src="../lib/gui.js"></script>
+<script type="text/javascript">
+    // 场景
+    var scene = new THREE.Scene();
+
+    // 摄像机
+    var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
+
+    // 渲染器
+    var renderer = new THREE.WebGLRenderer({
+        antialias: true, //是否开启反锯齿
+        precision: "highp"
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    // 渲染器 end
+
+    // 物体
+    var geometry = new THREE.BoxGeometry(1, 1, 1);
+    var material = new THREE.MeshBasicMaterial({color: 0x00ff00});
+    var cube = new THREE.Mesh(geometry, material);
+    // scene.add(cube);
+    // 物体 end
+
+    const loader = new THREE.GLTFLoader();
+
+    function loadGlb(name) {
+        loader.load(name, function (gltf) {
+            scene.add(gltf.scene);
+        }, undefined, function (error) {
+            console.error(error);
+        });
+    }
+
+    loadGlb('glb/C_11.glb');
+
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    //controls.update() must be called after any manual changes to the camera's transform
+    camera.position.z = (0.2, 1, 2);
+    controls.update();
+
+    var parameters = new function () {
+        this.order = 11;
+        this.name = "C_11"
+    };
+
+    //创建dat.GUI，传递并设置属性
+    var gui = new dat.GUI();
+    var orderController = gui.add(parameters, 'order', 2, 12).step(1);
+
+    const nameLists = [
+        [''],
+        ['C_1'],
+        ['C_2'],
+        ['C_3'],
+        ['C_4'],
+        ['C_5'],
+        ['C_6'],
+        ['C_7'],
+        ['C_8'],
+        ['C_9'],
+        ['C_10'],
+        ['C_11'],
+        ['C_12', 'A_4'],
+    ]
+
+    var nameController = gui.add(parameters, 'name', nameLists[11]);
+
+    function removeEntity(scene) {
+        while (scene.children.length > 0) {
+            scene.remove(scene.children[0]);
+        }
+    }
+
+
+    function animate() {
+        controls.update();
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+
+    animate();
+
+    orderController.onFinishChange(function(value) {
+        gui.remove(nameController);
+        nameController = gui.add(parameters, 'name', nameLists[value]);
+        nameController.onChange(function(value) {
+            removeEntity(scene);
+            loadGlb('glb/' + value +'.glb');
+        });
+        nameController.setValue(nameLists[value][0]);
+    });
+
+    nameController.onChange(function(value) {
+        removeEntity(scene);
+        loadGlb('glb/' + value +'.glb');
+    });
+
+
+
+
+</script>
+</body>
+</html>
