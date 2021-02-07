@@ -14,11 +14,11 @@
     </style>
 </head>
 <body>
-<script src="https://cdn.bootcdn.net/ajax/libs/three.js/r122/three.min.js"></script>
-<script src="../lib/GLTFLoader.js"></script>
-<script src="../lib/OrbitControls.js"></script>
-<script src="../lib/gui.js"></script>
-<script type="text/javascript">
+<script charset="utf-8" src="https://cdn.bootcdn.net/ajax/libs/three.js/r122/three.min.js"></script>
+<script charset="utf-8" src="../lib/GLTFLoader.js"></script>
+<script charset="utf-8" src="../lib/OrbitControls.js"></script>
+<script charset="utf-8" src="../lib/gui.js"></script>
+<script charset="utf-8" type="text/javascript">
     // 场景
     var scene = new THREE.Scene();
 
@@ -57,41 +57,103 @@
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
 
     //controls.update() must be called after any manual changes to the camera's transform
-    camera.position.z = (0.2, 1, 2);
+    camera.position.z = (0.2, 1.2, 2.2);
     controls.update();
 
     var parameters = new function () {
-        this.order = 11;
-        this.name = "C_11"
+        this.order = 1;
+        this.name = "\u2124\u2081"
     };
 
     //创建dat.GUI，传递并设置属性
     var gui = new dat.GUI();
-    var orderController = gui.add(parameters, 'order', 2, 12).step(1);
+    var orderController = gui.add(parameters, 'order', 1, 24).step(1);
 
     const nameLists = [
-        [''],
-        ['C_1'],
-        ['C_2'],
-        ['C_3'],
-        ['C_4'],
-        ['C_5'],
-        ['C_6'],
-        ['C_7'],
-        ['C_8'],
-        ['C_9'],
-        ['C_10'],
-        ['C_11'],
-        ['C_12', 'A_4'],
+        {'': ''},
+        {'\u2124\u2081': {'label': 'Z_1', 'info': ''}},
+        {'\u2124\u2082': {'label': 'Z_2', 'info': ''}},
+        {'\u2124\u2083': {'label': 'Z_3', 'info': ''}},
+        {
+            '\u2124\u2084': {'label': 'Z_4', 'info': ''},
+            'D\u2084': {'label': 'D_4', 'info': ''}
+        },
+        {'\u2124\u2085': {'label': 'Z_5', 'info': ''}},
+        {
+            '\u2124\u2086': {'label': 'Z_6', 'info': ''},
+            'S\u2083': {'label': 'S_3', 'info': ''}
+        },
+        {'\u2124\u2087': {'label': 'Z_7', 'info': ''}},
+        {
+            '\u2124\u2088': {'label': 'Z_8', 'info': ''},
+            'D\u2088': {'label': 'D_8', 'info': ''},
+            'Q\u2088': {'label': 'Q_8', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2084': {'label': 'Z_2_4', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2082\u00D7\u2124\u2082': {'label': 'Z_2_2_2', 'info': ''}
+        },
+        {
+            '\u2124\u2089': {'label': 'Z_9', 'info': ''},
+            '\u2124\u2083\u00D7\u2124\u2083': {'label': 'Z_3_3', 'info': ''}
+        },
+        {
+            '\u2124\u2081\u2080': {'label': 'Z_10', 'info': ''},
+            'D\u2081\u2080': {'label': 'D_10', 'info': ''}
+        },
+        {'\u2124\u2081\u2081': {'label': 'Z_11', 'info': ''}},
+        {
+            '\u2124\u2081\u2082': {'label': 'Z_12', 'info': ''},
+            'D\u2081\u2082': {'label': 'D_12', 'info': ''},
+            'A\u2084': {'label': 'A_4', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2082\u00D7\u2124\u2083': {'label': 'Z_2_2_3', 'info': ''}
+        },
+        {'\u2124\u2081\u2083': {'label': 'Z_13', 'info': ''}},
+        {
+            '\u2124\u2081\u2084': {'label': 'Z_14', 'info': ''},
+            'D\u2081\u2084': {'label': 'D_14', 'info': ''}
+        },
+        {'\u2124\u2081\u2085': {'label': 'Z_15', 'info': ''}},
+        {
+            '\u2124\u2081\u2086': {'label': 'Z_16', 'info': ''},
+            'D\u2081\u2086': {'label': 'D_16', 'info': ''},
+            'Q\u2081\u2086': {'label': 'Q_16', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2088': {'label': 'Z_2_8', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2082\u00D7\u2124\u2084': {'label': 'Z_2_2_4', 'info': ''},
+            '\u2124\u2082\u00D7\u2124\u2082\u00D7\u2124\u2082\u00D7\u2124\u2082': {'label': 'Z_2_2_2_2', 'info': ''},
+            '\u2124\u2084\u00D7\u2124\u2084': {'label': 'Z_4_4', 'info': ''},
+            '\u2124\u2084\u00D7\u2124\u2082\u00D7\u2124\u2082': {'label': 'Z_4_2_2', 'info': ''},
+        },
+        {'\u2124\u2081\u2087': {'label': 'Z_17', 'info': ''}},
+        {'\u2124\u2081\u2088': {'label': 'Z_18', 'info': ''}},
+        {'\u2124\u2081\u2089': {'label': 'Z_19', 'info': ''}},
+        {'\u2124\u2082\u2080': {'label': 'Z_20', 'info': ''}},
+        {'\u2124\u2082\u2081': {'label': 'Z_21', 'info': ''}},
+        {'\u2124\u2082\u2082': {'label': 'Z_22', 'info': ''}},
+        {'\u2124\u2082\u2083': {'label': 'Z_23', 'info': ''}},
+        {
+            '\u2124\u2082\u2084': {'label': 'Z_24', 'info': ''},
+            'S\u2084': {'label': 'S_4', 'info': ''}
+        }
     ]
 
-    var nameController = gui.add(parameters, 'name', nameLists[11]);
+    var nameController = gui.add(parameters, 'name', ['\u2124\u2081']);
 
     function removeEntity(scene) {
         while (scene.children.length > 0) {
             scene.remove(scene.children[0]);
         }
     }
+
+
+    var text2 = document.createElement('div');
+    text2.style.position = 'absolute';
+    //text2.style.zIndex = 1;    // if you still don't see the label, try uncommenting this
+    text2.style.width = 100;
+    text2.style.height = 100;
+    text2.style.backgroundColor = "blue";
+    text2.innerHTML = "hi there!";
+    text2.style.top = 200 + 'px';
+    text2.style.left = 200 + 'px';
+    document.body.appendChild(text2);
 
 
     function animate() {
@@ -102,22 +164,21 @@
 
     animate();
 
-    orderController.onFinishChange(function(value) {
+    orderController.onFinishChange(function (value) {
         gui.remove(nameController);
-        nameController = gui.add(parameters, 'name', nameLists[value]);
-        nameController.onChange(function(value) {
+        let namelist = Object.keys(nameLists[value]);
+        nameController = gui.add(parameters, 'name', namelist);
+        nameController.onChange(function (name) {
             removeEntity(scene);
-            loadGlb('glb/' + value +'.glb');
+            loadGlb('glb/' + nameLists[value][name].label + '.glb');
         });
-        nameController.setValue(nameLists[value][0]);
+        nameController.setValue(namelist[0]);
     });
 
-    nameController.onChange(function(value) {
+    nameController.onChange(function (name) {
         removeEntity(scene);
-        loadGlb('glb/' + value +'.glb');
+        loadGlb('glb/' + nameLists[parameters.order][name].label + '.glb');
     });
-
-
 
 
 </script>
