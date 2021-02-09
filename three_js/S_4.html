@@ -11,9 +11,34 @@
             width: 100%;
             height: 100%;
         }
+
+        #groupInfo {
+            /*border:1px solid red;*/
+            width: 230px;
+            height: 300px;
+            margin-left: 20px;
+            margin-top: 20px;
+            padding-left: 20px;
+            padding-bottom: 20px;
+            padding-top: 20px;
+            line-height: 30px;
+            text-align: left;
+            color: #FFFFFF
+        }
     </style>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']]
+            }
+        };
+    </script>
+    <script type="text/javascript" id="MathJax-script" async
+            src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+    </script>
 </head>
 <body>
+<div id="groupInfo"></div>
 <script charset="utf-8" src="https://cdn.bootcdn.net/ajax/libs/three.js/r122/three.min.js"></script>
 <script charset="utf-8" src="../lib/GLTFLoader.js"></script>
 <script charset="utf-8" src="../lib/OrbitControls.js"></script>
@@ -67,7 +92,7 @@
     };
 
     //创建dat.GUI，传递并设置属性
-    var gui = new dat.GUI();
+    var gui = new dat.GUI({autoPlace: true, width: 380});
     var orderController = gui.add(parameters, 'order', 1, 24).step(1);
     var nameController = gui.add(parameters, 'name', ['\u2124\u2081']);
     var variationController = false;
@@ -80,15 +105,14 @@
         }
     }
 
-    var text2 = document.createElement('div');
+    var text2 = document.getElementById("groupInfo");
     text2.style.position = 'absolute';
     //text2.style.zIndex = 1;    // if you still don't see the label, try uncommenting this
-    text2.style.width = 100;
-    text2.style.height = 100;
-    text2.style.backgroundColor = "blue";
-    text2.innerHTML = "hi there!";
-    text2.style.top = 200 + 'px';
-    text2.style.left = 200 + 'px';
+
+    // text2.style.backgroundColor = "blue";
+    text2.innerHTML = "Name: $\\mathbb{Z}_1$ <br /> Presentation: $\\left\\langle a \\mid a=e\\right\\rangle$";
+    text2.style.top = 1 + 'px';
+
     document.body.appendChild(text2);
 
 
@@ -100,13 +124,25 @@
 
     animate();
 
+    let promise = Promise.resolve();  // Used to hold chain of typesetting calls
+    function typeset(code) {
+        promise = promise.then(() => MathJax.typesetPromise(code()))
+            .catch((err) => console.log('Typeset failed: ' + err.message));
+        return promise;
+    }
+
     orderController.onFinishChange(function (value) {
         gui.remove(nameController);
         let namelist = Object.keys(nameLists[value]);
         nameController = gui.add(parameters, 'name', namelist);
         nameController.onChange(function (name) {
             removeEntity(scene);
-            var labels = nameLists[parameters.order][name].label;
+            var group = nameLists[parameters.order][name]
+            typeset(() => {
+                text2.innerHTML = `Name: ${group.info.texName} <br> Presentation: ${group.info.presentation[parameters.variation - 1]}`;
+            });
+
+            var labels = group.label;
 
             if (typeof labels === "string") {
                 if (variationController) {
@@ -117,34 +153,18 @@
             } else {
                 variationController = gui.add(parameters, 'variation', 1, labels.length).step(1);
                 loadGlb('glb/' + labels[0] + '.glb');
+
                 variationController.onFinishChange(function (v) {
                     removeEntity(scene);
-                    loadGlb('glb/' + labels[v-1] + '.glb');
+                    loadGlb('glb/' + labels[v - 1] + '.glb');
+                    typeset(() => {
+                        text2.innerHTML = `Name: ${group.info.texName} <br> Presentation: ${group.info.presentation[parameters.variation - 1]}`;
+                    });
                 });
             }
         });
         nameController.setValue(namelist[0]);
     });
-
-
-
-    // nameController.onChange(function (name) {
-    //     removeEntity(scene);
-    //     var labels = nameLists[parameters.order][name].label;
-    //     if (typeof labels === "string") {
-    //         if (variationController) {
-    //             gui.remove(variationController);
-    //         }
-    //         loadGlb('glb/' + labels + '.glb');
-    //     } else {
-    //         variationController = gui.add(parameters, 'variation', 1, labels.length).step(1);
-    //         loadGlb('glb/' + labels[0] + '.glb');
-    //         variationController.onFinishChange(function (v) {
-    //             removeEntity(scene);
-    //             loadGlb('glb/' + labels[v-1] + '.glb');
-    //         });
-    //     }
-    // });
 
 
 </script>
